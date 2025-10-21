@@ -25,7 +25,7 @@ conda activate StreetFighter
 
 ## Requirements
 ```bash
-pip install pygame PyOpenG
+pip install pygame PyOpenGL
 ```
 ## Sprites
 
