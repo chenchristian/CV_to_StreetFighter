@@ -16,7 +16,7 @@ These inputs are then fed into a custom PyGame environment that controls Street 
 
 ## Set Up and Installation
 ```bash
-git clone https://github.com/<your-username>/StreetFighter-PoseController.git
+git clone https://github.com/chenchristian/StreetFighter-PoseController.git
 cd StreetFighter-PoseController
 
 conda create -n StreetFighter python=3.12
