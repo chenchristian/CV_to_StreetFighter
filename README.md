@@ -15,18 +15,18 @@ By capturing player poses through a webcam, the system recognizes actions such a
 These inputs are then fed into a custom PyGame environment that controls Street Fighter gameplay.
 
 ## Set Up and Installation
-
+```bash
 git clone https://github.com/<your-username>/StreetFighter-PoseController.git
 cd StreetFighter-PoseController
 
 conda create -n StreetFighter python=3.12
 conda activate StreetFighter
-
+```
 
 ## Requirements
-
-pip install pygame PyOpenGL
-
+```bash
+pip install pygame PyOpenG
+```
 ## Sprites
 
 This game uses character sprites from *Street Fighter III* and *SNK vs Capcom* for educational purposes only.
