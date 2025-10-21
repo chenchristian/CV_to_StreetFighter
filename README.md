@@ -1,27 +1,31 @@
-# Reencor
+# CV to StreetFighter
+
+The goal of this project is to use pose estimation models (e.g., ViT-Pose, MediaPipe, or OpenPose) to detect human movements and map them to Street Fighter character actions.
  
-A retro-inspired 2D fighting game featuring classic-style sprites, Pygame, and OpenGL.
+By capturing player poses through a webcam, the system recognizes actions such as:
 
-## Demo Video
+👊 Punch
 
-Check out the gameplay demo on Reddit:  
-[View the demo here](https://www.reddit.com/r/pygame/comments/1ksj3po/just_added_combo_trials_mode_to_my_fighting_game/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)
+🦶 Kick
 
-## Version
+🙅 Block
 
-**Version:** 0.3.2-pre.1
+🕺 Movement (left/right/jump/crouch)
 
-## Features
+These inputs are then fed into a custom PyGame environment that controls Street Fighter gameplay.
 
-- Classic 2D fighting mechanics
-- Keyboard and joystick support
-- OpenGL rendering
+## Set Up and Installation
+
+git clone https://github.com/<your-username>/StreetFighter-PoseController.git
+cd StreetFighter-PoseController
+
+conda create -n StreetFighter python=3.12
+conda activate StreetFighter
+
 
 ## Requirements
 
-- Python 3.9+
-- [Pygame](https://www.pygame.org/)
-- [PyOpenGL](http://pyopengl.sourceforge.net/)
+pip install pygame PyOpenGL
 
 ## Sprites
 
@@ -56,6 +60,6 @@ Unzip the file and place the folder in the `Assets/images` folder before running
 ## How to Run
 
 ```bash
-git clone https://github.com/Ranguel/Reencor
-cd Reencor
+git clone https://github.com/chenchristian/CV_to_StreetFighter
+cd StreetFighter
 python main.py
