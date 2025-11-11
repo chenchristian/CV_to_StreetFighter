@@ -7,13 +7,15 @@ mp_pose = mp.solutions.pose
 
 remove_indices = [1, 3, 4, 6, 17, 18, 19, 20, 21, 22, 31, 32]
 
-def record_pose_data(mode_test=False, csv_filename="pose_data.csv"):
+def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_info=None):
     """
     Capture pose data from webcam and either save to CSV or return vectors for testing.
     
     Args:
         mode_test (bool): True = return vector for model, False = save to CSV
         csv_filename (str): file to save data if mode_test=False
+        movement_info (dict): Optional dict to share movement direction info for display
+                             Should have 'direction' key that gets updated
     
     Returns:
         list of np.array if mode_test=True, else None
@@ -96,6 +98,35 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv"):
                     yield vector
                 else:
                     csv_writer.writerow(vector)
+            else:
+                # No pose detected
+                if movement_info is not None:
+                    movement_info['direction'] = "NO POSE DETECTED"
+                    movement_info['x_diff'] = 0.0
+            
+            # Display movement direction on screen if available
+            if movement_info is not None and 'direction' in movement_info:
+                direction = movement_info['direction']
+                # Choose color based on direction
+                if "RIGHT" in direction:
+                    color = (0, 255, 0)  # Green for right
+                elif "LEFT" in direction:
+                    color = (0, 0, 255)  # Red for left
+                elif "NO POSE" in direction:
+                    color = (0, 0, 255)  # Red for no pose
+                else:
+                    color = (0, 255, 255)  # Yellow for stationary
+                
+                # Display movement direction on screen
+                cv.putText(frame, direction, (50, 50),
+                          cv.FONT_HERSHEY_SIMPLEX, 1.5, color, 3)
+                
+                # Display coordinate difference if available
+                if 'x_diff' in movement_info:
+                    x_diff = movement_info['x_diff']
+                    diff_text = f"X Diff: {x_diff:.6f}"
+                    cv.putText(frame, diff_text, (50, 100),
+                              cv.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
 
             cv.imshow("Pose Recording", frame)
             if cv.waitKey(1) & 0xFF == 27:  # ESC to exit
