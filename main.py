@@ -150,7 +150,7 @@ class GameObject:
         self.selected_stage = "trining stage"
 
         self.Input_device_available()
-        self.dummy_input_device = dummy_input
+        self.dummy_input_device = dummy_input #the bots inputs dummy_input = do nothing. 
 
         self.screen_sequence = [
             ModeSelectionScreen,
@@ -159,7 +159,7 @@ class GameObject:
         self.screen_parameters = []
 
         self.screen_sequence, self.selected_characters, self.selected_stage = (
-            [ComboTrialScreen],
+            [VersusScreen],
             ["SF3/Ryu", "SF3/Ken"],
             ["Reencor/Training"],
         )
@@ -174,7 +174,7 @@ class GameObject:
         keyboard_conut = 1
         joystick_count = joystick.get_count()
         for i in range(keyboard_conut):
-            self.input_device_list = [InputDevice(self, 1, 1, "keyboard")]
+            self.input_device_list = [InputDevice(self, 1, 1, "external")] #changing keyboard to external
         for i in range(joystick_count):
             self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
 

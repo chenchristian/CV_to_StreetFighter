@@ -56,6 +56,7 @@ class InputDevice:
             team,
             keyboard_mapping,
             {
+                "external": self.external_mode, #using our AI
                 "keyboard": self.keyboard_mode,
                 "joystick": self.joystick_mode,
                 "AI": self.AI_mode,
@@ -115,6 +116,24 @@ class InputDevice:
             if input[0] == "analog"
             else (self.controller.get_button(input[1]) * (-1 if len(input) > 2 else 1))
         )
+
+   
+    def external_mode(self):
+     # Example: pull inputs from a queue or file
+        
+        from ComputerVision.external_input_source import left_right
+
+        # initialize stream once
+        if not hasattr(self, "pose_stream"):
+            self.pose_stream = left_right()
+
+        try:
+            raw_input, move_info = next(self.pose_stream)
+        except StopIteration:
+            raw_input = [[0, 0], 0, 0, 0, 0, 0, 0, 0, 0]
+
+        # directly feed into game input handler
+        self.get_press(raw_input)
 
     def keyboard_mode(self):
         keyboard = tuple(key.get_pressed())
