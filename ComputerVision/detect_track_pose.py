@@ -91,7 +91,9 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv"):
 
                 if mode_test:
                     pose_vectors.append(vector)
-                    print(vector)
+
+                    #yielding is like returning doing it live and doesnt have to stop the program.
+                    yield vector
                 else:
                     csv_writer.writerow(vector)
 
@@ -104,6 +106,10 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv"):
     if not mode_test:
         csv_file.close()
     if mode_test:
-        return pose_vectors
+        return 
+    
 
-record_pose_data(True)
+
+
+
+
