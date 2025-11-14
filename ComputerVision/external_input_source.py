@@ -14,7 +14,7 @@ def left_right():
     Each output matches the format expected by InputDevice.get_press().
     """
     prev_center_x = None
-    movement_threshold = 0.01  # sensitivity threshold
+    movement_threshold = 0.005  # sensitivity threshold
 
     # MediaPipe landmark setup
     body_face_original_indices = [0, 2, 5, 7, 8, 9, 10, 11, 12, 23, 24]
@@ -75,3 +75,5 @@ def left_right():
 
         # 🎯 Yield both (game uses raw_input, you can also inspect movement_info)
         yield raw_input, dict(movement_info)
+
+        #time here saying time to calc movement. 
