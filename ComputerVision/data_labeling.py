@@ -71,7 +71,18 @@ def label(csv_path, video_path):
     df["label"] = labels
     data_folder = os.path.join("Data")
     os.makedirs(data_folder, exist_ok=True)
-    output_path = os.path.join(data_folder, os.path.basename(csv_path).replace(".csv", "_labeled.csv"))
+      # Save labeled CSV with auto-incrementing name
+    base_name = os.path.splitext(os.path.basename(csv_path))[0]  # e.g., pose_data
+    counter = 1
+
+    # Find next available filename
+    while True:
+        output_name = f"{base_name}_labeled_{counter}.csv"
+        output_path = os.path.join(data_folder, output_name)
+        if not os.path.exists(output_path):
+            break
+        counter += 1
+
     df.to_csv(output_path, index=False)
 
     cap.release()
@@ -138,8 +149,10 @@ def verify(csv_path, video_path):
 # Main
 # -----------------------------
 if __name__ == "__main__":
-    csv_file = "Data/pose_data_labeled.csv"
+    #remember to change which data you are getting label from
+    csv_file = "pose_data.csv"
+    csv_file_verify = "Data/pose_data_labeled_3.csv"
     video_file = "pose_recording.mp4"
 
-    #change to label if need
-    verify(csv_file, video_file)
+    #change to label()/verify to change functionality
+    verify(csv_file_verify, video_file)
