@@ -8,9 +8,7 @@ By capturing player poses through a webcam, the system recognizes actions such a
 
 🦶 Kick
 
-🙅 Block
-
-🕺 Movement (left/right/jump/crouch)
+🕺 Movement (left/right)
 
 These inputs are then fed into a custom PyGame environment that controls Street Fighter gameplay.
 
