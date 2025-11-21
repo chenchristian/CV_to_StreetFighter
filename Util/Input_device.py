@@ -121,7 +121,7 @@ class InputDevice:
     def external_mode(self):
      # Example: pull inputs from a queue or file
         
-        from ComputerVision.external_input_source import left_right
+        from ComputerVision.external_input_source_lstm import left_right
 
         # initialize stream once
         if not hasattr(self, "pose_stream"):
