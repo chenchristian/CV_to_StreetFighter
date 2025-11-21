@@ -337,7 +337,7 @@ def main():
     print("LSTM Pose Classification Training (PyTorch)")
     print("="*50)
     
-    # Find project root directory (parent of Model/)
+    # Find project root directory (parent of ComputerVision/)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     os.chdir(project_root)  # Change to project root so paths work correctly
