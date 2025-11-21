@@ -2,6 +2,7 @@ import cv2 as cv
 import csv
 import mediapipe as mp
 import numpy as np
+import threading  # <--- ADD THIS IMPORT
 
 mp_pose = mp.solutions.pose
 
@@ -10,8 +11,8 @@ movement_threshold = 0.05
 
 def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_info=None):
     """
-    Capture pose data from webcam, save to CSV or return vectors, 
-    record video (only if mode_test=False), and display movement info.
+    Capture pose data from webcam.
+    Adapts automatically: shows window if running standalone, runs headless if in game thread.
     """
     cap = cv.VideoCapture(0)
     cap.set(cv.CAP_PROP_FRAME_WIDTH, 640)
@@ -60,7 +61,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
                 lms = results.pose_landmarks.landmark
                 lms_filtered = [lm for i, lm in enumerate(lms) if i not in remove_indices]
 
-                # Draw landmarks
+                # Draw landmarks (We still draw them just in case we want to save the video)
                 for lm in lms_filtered:
                     cx, cy = int(lm.x * w), int(lm.y * h)
                     cv.circle(frame_resized, (cx, cy), 5, (0, 255, 0), -1)
@@ -102,7 +103,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
                 movement_info['direction'] = "NO POSE DETECTED"
                 movement_info['x_diff'] = 0.0
 
-            # Display movement info
+            # Display movement info on frame
             direction = movement_info['direction']
             color = (0, 255, 255)
             if "RIGHT" in direction:
@@ -114,19 +115,24 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
             cv.putText(frame_resized, f"X Diff: {movement_info['x_diff']:.4f}", (20, 80),
                        cv.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-            cv.imshow("Pose Recording", frame_resized)
-
-            if cv.waitKey(1) & 0xFF == 27:  # ESC to exit
-                break
+            # --- THE FIX: Only show window if we are on the Main Thread ---
+            if threading.current_thread() is threading.main_thread():
+                cv.imshow("Pose Recording", frame_resized)
+                if cv.waitKey(1) & 0xFF == 27:  # ESC to exit
+                    break
+            # --------------------------------------------------------------
 
     cap.release()
     if not mode_test:
         video_writer.release()
         csv_file.close()
-    cv.destroyAllWindows()
+    
+    # Only destroy windows if we actually created them (Main Thread)
+    if threading.current_thread() is threading.main_thread():
+        cv.destroyAllWindows()
+        
     if mode_test:
         return
-
 
 if __name__ == "__main__":
     print("Starting pose recorder... Press ESC to stop.")
