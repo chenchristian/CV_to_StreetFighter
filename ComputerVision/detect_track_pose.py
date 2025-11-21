@@ -8,7 +8,7 @@ mp_pose = mp.solutions.pose
 remove_indices = [1, 3, 4, 6, 17, 18, 19, 20, 21, 22, 31, 32]
 movement_threshold = 0.05
 
-def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_info=None):
+def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_info=None, prediction_callback=None):
     """
     Capture pose data from webcam, save to CSV or return vectors, 
     record video (only if mode_test=False), and display movement info.
@@ -36,6 +36,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
     if movement_info is None:
         movement_info = {"direction": "", "x_diff": 0.0}
     prev_center_x = None
+    prediction_text = ""
 
     with mp_pose.Pose(
         static_image_mode=False,
@@ -44,7 +45,6 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
         min_detection_confidence=0.6,
         min_tracking_confidence=0.6
     ) as pose:
-
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -77,6 +77,10 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
 
                 # Pose vector
                 vector = np.array([coord for lm in lms_filtered for coord in (lm.x, lm.y, lm.z, lm.visibility)], dtype=np.float32)
+                
+                # Get prediction from callback if provided
+                if mode_test and prediction_callback:
+                    prediction_text = prediction_callback(vector)
 
                 if mode_test:
                     pose_vectors.append(vector)
@@ -113,6 +117,18 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
             cv.putText(frame_resized, direction, (20, 40), cv.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
             cv.putText(frame_resized, f"X Diff: {movement_info['x_diff']:.4f}", (20, 80),
                        cv.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+            
+            # Display prediction
+            if prediction_text == "kick":
+                pred_color = (255, 0, 0)
+            elif prediction_text == "punch":
+                pred_color = (0, 0, 255)
+            else:
+                pred_color = (255, 255, 255)
+                
+            if prediction_text:
+                cv.putText(frame_resized, f"Action: {prediction_text}", (20, 120), 
+                          cv.FONT_HERSHEY_SIMPLEX, 1.0, pred_color, 2)
 
             cv.imshow("Pose Recording", frame_resized)
 
