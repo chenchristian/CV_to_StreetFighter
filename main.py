@@ -30,6 +30,7 @@ from Util.OpenGL_Renderer import (
 from Util.Input_device import InputDevice, dummy_input
 from Util.Interface_objects import Message
 
+from ComputerVision.pose_viewer import PoseViewer   # NEW
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -150,7 +151,7 @@ class GameObject:
         self.selected_stage = "trining stage"
 
         self.Input_device_available()
-        self.dummy_input_device = dummy_input #the bots inputs dummy_input = do nothing. 
+        self.dummy_input_device = dummy_input
 
         self.screen_sequence = [
             ModeSelectionScreen,
@@ -174,7 +175,7 @@ class GameObject:
         keyboard_conut = 1
         joystick_count = joystick.get_count()
         for i in range(keyboard_conut):
-            self.input_device_list = [InputDevice(self, 1, 1, "external")] #changing keyboard to external
+            self.input_device_list = [InputDevice(self, 1, 1, "external")]
         for i in range(joystick_count):
             self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
 
@@ -197,6 +198,14 @@ class GameObject:
                 self.current_screen.__loop__()
 
                 self.screen.display()
+
+                # --- ADD POSE VIEWER POLLING HERE ---
+                try:
+                    pose_viewer.poll()
+                except:
+                    pass
+                # ------------------------------------
+
                 display.flip()
                 self.event_handler()
                 self.time.tick(self.frame_rate)
@@ -333,6 +342,13 @@ class GameObject:
                 dev.draw(self.screen, self.camera.pos)
 
 
-game = GameObject()
+# -----------------------------
+# REMOVE OLD OPENCV THREAD
+# -----------------------------
 
+# New system
+pose_viewer = PoseViewer()
+pose_viewer.start_recorder()
+
+game = GameObject()
 game.screen_manager()

@@ -61,19 +61,19 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
                 lms_filtered = [lm for i, lm in enumerate(lms) if i not in remove_indices]
 
                 # Draw landmarks
-                #for lm in lms_filtered:
-                    #cx, cy = int(lm.x * w), int(lm.y * h)
-                    #cv.circle(frame_resized, (cx, cy), 5, (0, 255, 0), -1)
+                for lm in lms_filtered:
+                    cx, cy = int(lm.x * w), int(lm.y * h)
+                    cv.circle(frame_resized, (cx, cy), 5, (0, 255, 0), -1)
 
                 # Draw connections
-                #connections = [c for c in mp_pose.POSE_CONNECTIONS
-                               #if c[0] not in remove_indices and c[1] not in remove_indices]
-                #for start_idx, end_idx in connections:
-                    #start = lms[start_idx]
-                    #end = lms[end_idx]
-                    #x1, y1 = int(start.x * w), int(start.y * h)
-                    #x2, y2 = int(end.x * w), int(end.y * h)
-                    #cv.line(frame_resized, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                connections = [c for c in mp_pose.POSE_CONNECTIONS
+                               if c[0] not in remove_indices and c[1] not in remove_indices]
+                for start_idx, end_idx in connections:
+                    start = lms[start_idx]
+                    end = lms[end_idx]
+                    x1, y1 = int(start.x * w), int(start.y * h)
+                    x2, y2 = int(end.x * w), int(end.y * h)
+                    cv.line(frame_resized, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
                 # Pose vector
                 vector = np.array([coord for lm in lms_filtered for coord in (lm.x, lm.y, lm.z, lm.visibility)], dtype=np.float32)
@@ -90,7 +90,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
                 if prev_center_x is not None:
                     x_diff = center_x - prev_center_x
                     movement_info['x_diff'] = x_diff
-                    if x_diff > 0.005:
+                    if x_diff > movement_threshold:
                         movement_info['direction'] = "MOVE RIGHT"
                     elif x_diff < -movement_threshold:
                         movement_info['direction'] = "MOVE LEFT"
@@ -114,7 +114,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
             cv.putText(frame_resized, f"X Diff: {movement_info['x_diff']:.4f}", (20, 80),
                        cv.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-            #cv.imshow("Pose Recording", frame_resized)
+            cv.imshow("Pose Recording", frame_resized)
 
             if cv.waitKey(1) & 0xFF == 27:  # ESC to exit
                 break
