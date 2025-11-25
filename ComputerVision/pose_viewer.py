@@ -23,10 +23,14 @@ class PoseViewer:
             self.last_frame = snapshot["frame_rgb"].copy()
             self.last_landmarks = snapshot["landmarks"]
             movement_info = snapshot["movement_info"]
+            pred_label = snapshot["prediction"]
+            confidence = snapshot["confidence"]
         else:
             self.last_frame = None
             self.last_landmarks = []
             movement_info = {"direction": "STATIONARY", "x_diff": 0.0}
+            pred_label = None
+            confidence = None
 
         if self.last_frame is None:
             img = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -79,6 +83,10 @@ class PoseViewer:
                     (255, 0, 0),
                     2
                 )
+        
+        if pred_label is not None and confidence is not None:
+            cv.putText(img, f"Action: {pred_label} ({confidence:.2f})", (10, 90),
+                    cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
 
         # overlay movement info

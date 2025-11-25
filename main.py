@@ -30,8 +30,8 @@ from Util.OpenGL_Renderer import (
 from Util.Input_device import InputDevice, dummy_input
 from Util.Interface_objects import Message
 
-from ComputerVision.pose_worker import PoseWorker
-from ComputerVision.pose_viewer import PoseViewer
+
+
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -343,8 +343,37 @@ class GameObject:
             for dev in self.input_device_list:
                 dev.draw(self.screen, self.camera.pos)
 
+import torch
+import pickle
+from ComputerVision.pose_worker import PoseWorker
+from ComputerVision.pose_viewer import PoseViewer
+from Models.lstm_live_predictions import LivePosePredictor
+from Models.lstm_model import LSTMWindowClassifier
+
+# Load model
+with open("label_encoder.pkl", "rb") as f:
+    label_encoder = pickle.load(f)
+
+model = LSTMWindowClassifier(
+    input_size=84,  # 21 landmarks * 4 features
+    hidden_size=128,
+    num_layers=2,
+    num_classes=len(label_encoder.classes_),
+    dropout=0.3
+)
+
+# Load the trained weights
+model.load_state_dict(torch.load("lstm_pose_model.pth", map_location="cpu"))  # or "cuda"
+model.eval()
+# Load label encoder
+with open("label_encoder.pkl", "rb") as f:
+    label_encoder = pickle.load(f)
+
+# Create predictor
+predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
+
 # Start PoseWorker
-pose_worker = PoseWorker()
+pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
 pose_worker.start()
 
 # Start PoseViewer

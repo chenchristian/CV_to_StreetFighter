@@ -114,7 +114,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
             cv.putText(frame_resized, f"X Diff: {movement_info['x_diff']:.4f}", (20, 80),
                        cv.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-            #cv.imshow("Pose Recording", frame_resized)
+            cv.imshow("Pose Recording", frame_resized)
 
             if cv.waitKey(1) & 0xFF == 27:  # ESC to exit
                 break
