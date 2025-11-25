@@ -1,8 +1,7 @@
 from pygame import joystick, key
 from random import uniform, choice
 from Util.Common_functions import RoundSign
-import threading
-from ComputerVision.external_input_source import left_right 
+from ComputerVision.pose_worker import PoseWorker
 
 keyboard_mapping = (
     (79,),
@@ -48,43 +47,10 @@ joystick_name_mapping = {
     ),
 }
 
-
-#this class fixes the lag. Lag caused by slow input from ai pipline, and game ticks were refreshing with each input.
-#so the frames dropped. What ThreadPoseListener does is it tells the game to keep using the previous input (to move the game along)
-#until the the ai gives a new command
-class ThreadedPoseListener:
-    def __init__(self):
-        # 1. Set a default "safe" input (Standing still)
-        self.current_input = [[0, 0], 0, 0, 0, 0, 0, 0, 0, 0]
-        self.running = True
-        
-        # 2. Start the generator in a separate thread
-        self.thread = threading.Thread(target=self._worker)
-        self.thread.daemon = True  # Ensures thread dies when game closes
-        self.thread.start()
-
-    def _worker(self):
-        """This runs in the background, updating inputs as fast as the camera allows."""
-        # Create the generator once
-        pose_stream = left_right()
-        
-        try:
-            # Loop through the generator
-            for raw_input, move_info in pose_stream:
-                if not self.running:
-                    break
-                # Update the shared variable immediately
-                self.current_input = raw_input
-        except Exception as e:
-            print(f"CV Thread Error: {e}")
-
-    def get_latest_input(self):
-        """The game calls this. It returns INSTANTLY."""
-        return self.current_input
-
 class InputDevice:
-    def __init__(self, game, team=1, index=0, mode="none"):
+    def __init__(self, game, team=1, index=0, mode="none", pose_worker=None):
         self.game = game
+        self.pose_worker = pose_worker
         self.type = "input"
         self.team, self.key, self.mode = (
             team,
@@ -153,16 +119,9 @@ class InputDevice:
 
    
     def external_mode(self):
-        # 1. Initialize the thread ONLY ONCE if it doesn't exist yet
-        if not hasattr(self, "pose_listener"):
-            # This starts the background thread immediately
-            self.pose_listener = ThreadedPoseListener()
-
-        # 2. Get the latest input from memory (Takes 0 milliseconds)
-        # Instead of waiting for next(), we just peek at the last known good value
-        raw_input = self.pose_listener.get_latest_input()
-
-        # 3. Feed into game
+        if self.pose_worker is None:
+            return  
+        raw_input = self.pose_worker.get_latest_game_input()
         self.get_press(raw_input)
 
         

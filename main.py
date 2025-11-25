@@ -30,7 +30,8 @@ from Util.OpenGL_Renderer import (
 from Util.Input_device import InputDevice, dummy_input
 from Util.Interface_objects import Message
 
-from ComputerVision.pose_viewer import PoseViewer   # NEW
+from ComputerVision.pose_worker import PoseWorker
+from ComputerVision.pose_viewer import PoseViewer
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -109,7 +110,8 @@ def get_dictionaries(current_dir):
 
 
 class GameObject:
-    def __init__(self):
+    def __init__(self,pose_worker=None):
+        self.pose_worker = pose_worker
         self.type = "game"
 
         mixer.pre_init(44100, -16, 1, 1024)
@@ -175,7 +177,7 @@ class GameObject:
         keyboard_conut = 1
         joystick_count = joystick.get_count()
         for i in range(keyboard_conut):
-            self.input_device_list = [InputDevice(self, 1, 1, "external")]
+            self.input_device_list = [InputDevice(self, 1, 1, "external",pose_worker = self.pose_worker)]
         for i in range(joystick_count):
             self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
 
@@ -341,14 +343,13 @@ class GameObject:
             for dev in self.input_device_list:
                 dev.draw(self.screen, self.camera.pos)
 
+# Start PoseWorker
+pose_worker = PoseWorker()
+pose_worker.start()
 
-# -----------------------------
-# REMOVE OLD OPENCV THREAD
-# -----------------------------
+# Start PoseViewer
+pose_viewer = PoseViewer(shared_state=pose_worker)
 
-# New system
-pose_viewer = PoseViewer()
-pose_viewer.start_recorder()
-
-game = GameObject()
+# Start game
+game = GameObject(pose_worker=pose_worker)
 game.screen_manager()
