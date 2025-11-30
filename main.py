@@ -30,7 +30,8 @@ from Util.OpenGL_Renderer import (
 from Util.Input_device import InputDevice, dummy_input
 from Util.Interface_objects import Message
 
-from ComputerVision.pose_viewer import PoseViewer   # NEW
+
+
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -109,7 +110,8 @@ def get_dictionaries(current_dir):
 
 
 class GameObject:
-    def __init__(self):
+    def __init__(self,pose_worker=None):
+        self.pose_worker = pose_worker
         self.type = "game"
 
         mixer.pre_init(44100, -16, 1, 1024)
@@ -175,7 +177,7 @@ class GameObject:
         keyboard_conut = 1
         joystick_count = joystick.get_count()
         for i in range(keyboard_conut):
-            self.input_device_list = [InputDevice(self, 1, 1, "external")]
+            self.input_device_list = [InputDevice(self, 1, 1, "external",pose_worker = self.pose_worker)]
         for i in range(joystick_count):
             self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
 
@@ -341,14 +343,42 @@ class GameObject:
             for dev in self.input_device_list:
                 dev.draw(self.screen, self.camera.pos)
 
+import torch
+import pickle
+from ComputerVision.pose_worker import PoseWorker
+from ComputerVision.pose_viewer import PoseViewer
+from Models.lstm_live_predictions import LivePosePredictor
+from Models.lstm_model import LSTMWindowClassifier
 
-# -----------------------------
-# REMOVE OLD OPENCV THREAD
-# -----------------------------
+# Load model
+with open("label_encoder.pkl", "rb") as f:
+    label_encoder = pickle.load(f)
 
-# New system
-pose_viewer = PoseViewer()
-pose_viewer.start_recorder()
+model = LSTMWindowClassifier(
+    input_size=84,  # 21 landmarks * 4 features
+    hidden_size=128,
+    num_layers=2,
+    num_classes=len(label_encoder.classes_),
+    dropout=0.3
+)
 
-game = GameObject()
+# Load the trained weights
+model.load_state_dict(torch.load("lstm_pose_model.pth", map_location="cpu"))  # or "cuda"
+model.eval()
+# Load label encoder
+with open("label_encoder.pkl", "rb") as f:
+    label_encoder = pickle.load(f)
+
+# Create predictor
+predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
+
+# Start PoseWorker
+pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
+pose_worker.start()
+
+# Start PoseViewer
+pose_viewer = PoseViewer(shared_state=pose_worker)
+
+# Start game
+game = GameObject(pose_worker=pose_worker)
 game.screen_manager()
