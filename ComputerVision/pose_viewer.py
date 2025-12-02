@@ -9,6 +9,7 @@ class PoseViewer:
         self._window_created = False
         self.last_frame = None
         self.last_landmarks = []
+        self.movement_edge_threshold = 0.15
 
     def _ensure_window(self):
         if not self._window_created:
@@ -159,10 +160,10 @@ class PoseViewer:
         # Draw edge indicator zones
         center_x = movement_info.get("center_x")
         if center_x is not None:
-            zone_width = int(0.1 * w)  # 10% of screen width
+            zone_width = int(0.2 * w)  # 20% of screen width
             
-            # Left edge zone
-            if center_x <= 0.1:
+            # Left edge zone 15%
+            if center_x <= self.movement_edge_threshold:
                 # Highlight left edge zone with semi-transparent green overlay
                 overlay = img.copy()
                 cv.rectangle(overlay, (0, 0), (zone_width, h), (0, 255, 0), -1)
@@ -173,8 +174,8 @@ class PoseViewer:
                 cv.rectangle(overlay, (0, 0), (zone_width, h), (50, 50, 50), -1)
                 cv.addWeighted(overlay, 0.15, img, 0.85, 0, img)
             
-            # Right edge zone
-            if center_x >= 0.9:
+            # Right edge zone 85%
+            if center_x >= 1 - self.movement_edge_threshold: 
                 # Highlight right edge zone with semi-transparent green overlay
                 overlay = img.copy()
                 cv.rectangle(overlay, (w - zone_width, 0), (w, h), (0, 255, 0), -1)

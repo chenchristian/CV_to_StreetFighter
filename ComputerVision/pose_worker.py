@@ -11,7 +11,8 @@ class PoseWorker:
                  camera_index=0,
                  width=640,
                  height=480,
-                 movement_threshold=0.01,
+                 movement_threshold=0.02,
+                 movement_edge_threshold = 0.15,
                  subscriber_queue_maxsize=2,
                  live_predictor=None): 
         # MediaPipe & filtering config
@@ -21,7 +22,9 @@ class PoseWorker:
             0,2,5,7,8,9,10,11,12,13,14,15,16,
             23,24,25,26,27,28,29,30
         ]
+        # movement thresholds
         self.movement_threshold = movement_threshold
+        self.movement_edge_threshold = movement_edge_threshold
 
         # camera config
         self.camera_index = camera_index
@@ -142,12 +145,12 @@ class PoseWorker:
                         else:
                             x_diff = center_x - prev_center_x
                             
-                            # Check if at screen edges (90% threshold)
-                            if center_x >= 0.9:
+                            # Check if at screen edges (85% threshold)
+                            if center_x >= 1- self.movement_edge_threshold:
                                 # At right edge, force movement right
                                 movement = "MOVING RIGHT"
                                 left_right_up_down = [[1,0]]
-                            elif center_x <= 0.1:
+                            elif center_x <= self.movement_edge_threshold:
                                 # At left edge, force movement left
                                 movement = "MOVING LEFT"
                                 left_right_up_down = [[-1,0]]
