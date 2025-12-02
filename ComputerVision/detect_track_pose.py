@@ -132,20 +132,34 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
                 cv.putText(frame_resized, f"Action: {prediction_text}", (20, 120), 
                           cv.FONT_HERSHEY_SIMPLEX, 1.0, pred_color, 2)
 
-            # Draw edge indicator bars
+            # Draw edge indicator zones
             center_x = movement_info.get('center_x')
             if center_x is not None:
-                # Left edge bar (at 10% of width)
-                left_edge_x = int(0.1 * w)
-                left_bar_color = (0, 255, 0) if center_x <= 0.1 else (100, 100, 100)
-                left_bar_thickness = 5 if center_x <= 0.1 else 2
-                cv.line(frame_resized, (left_edge_x, 0), (left_edge_x, h), left_bar_color, left_bar_thickness)
+                zone_width = int(0.1 * w)  # 10% of screen width
                 
-                # Right edge bar (at 90% of width)
-                right_edge_x = int(0.9 * w)
-                right_bar_color = (0, 255, 0) if center_x >= 0.9 else (100, 100, 100)
-                right_bar_thickness = 5 if center_x >= 0.9 else 2
-                cv.line(frame_resized, (right_edge_x, 0), (right_edge_x, h), right_bar_color, right_bar_thickness)
+                # Left edge zone
+                if center_x <= 0.1:
+                    # Highlight left edge zone with semi-transparent green overlay
+                    overlay = frame_resized.copy()
+                    cv.rectangle(overlay, (0, 0), (zone_width, h), (0, 255, 0), -1)
+                    cv.addWeighted(overlay, 0.3, frame_resized, 0.7, 0, frame_resized)
+                else:
+                    # Dim left edge zone when not active
+                    overlay = frame_resized.copy()
+                    cv.rectangle(overlay, (0, 0), (zone_width, h), (50, 50, 50), -1)
+                    cv.addWeighted(overlay, 0.15, frame_resized, 0.85, 0, frame_resized)
+                
+                # Right edge zone
+                if center_x >= 0.9:
+                    # Highlight right edge zone with semi-transparent green overlay
+                    overlay = frame_resized.copy()
+                    cv.rectangle(overlay, (w - zone_width, 0), (w, h), (0, 255, 0), -1)
+                    cv.addWeighted(overlay, 0.3, frame_resized, 0.7, 0, frame_resized)
+                else:
+                    # Dim right edge zone when not active
+                    overlay = frame_resized.copy()
+                    cv.rectangle(overlay, (w - zone_width, 0), (w, h), (50, 50, 50), -1)
+                    cv.addWeighted(overlay, 0.15, frame_resized, 0.85, 0, frame_resized)
 
             cv.imshow("Pose Recording", frame_resized)
 
