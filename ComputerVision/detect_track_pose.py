@@ -91,6 +91,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
 
                 # Calculate movement info (left/right)
                 center_x = np.mean([lm.x for lm in lms_filtered])
+                movement_info['center_x'] = center_x
                 if prev_center_x is not None:
                     x_diff = center_x - prev_center_x
                     movement_info['x_diff'] = x_diff
@@ -105,6 +106,7 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
             else:
                 movement_info['direction'] = "NO POSE DETECTED"
                 movement_info['x_diff'] = 0.0
+                movement_info['center_x'] = None
 
             # Display movement info
             direction = movement_info['direction']
@@ -129,6 +131,21 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
             if prediction_text:
                 cv.putText(frame_resized, f"Action: {prediction_text}", (20, 120), 
                           cv.FONT_HERSHEY_SIMPLEX, 1.0, pred_color, 2)
+
+            # Draw edge indicator bars
+            center_x = movement_info.get('center_x')
+            if center_x is not None:
+                # Left edge bar (at 10% of width)
+                left_edge_x = int(0.1 * w)
+                left_bar_color = (0, 255, 0) if center_x <= 0.1 else (100, 100, 100)
+                left_bar_thickness = 5 if center_x <= 0.1 else 2
+                cv.line(frame_resized, (left_edge_x, 0), (left_edge_x, h), left_bar_color, left_bar_thickness)
+                
+                # Right edge bar (at 90% of width)
+                right_edge_x = int(0.9 * w)
+                right_bar_color = (0, 255, 0) if center_x >= 0.9 else (100, 100, 100)
+                right_bar_thickness = 5 if center_x >= 0.9 else 2
+                cv.line(frame_resized, (right_edge_x, 0), (right_edge_x, h), right_bar_color, right_bar_thickness)
 
             cv.imshow("Pose Recording", frame_resized)
 

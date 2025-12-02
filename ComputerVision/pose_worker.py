@@ -114,7 +114,7 @@ class PoseWorker:
                 # defaults
                 vector = np.zeros((33 - len(self.remove_indices)) * 4, dtype=np.float32)
                 landmarks_for_drawing = []
-                movement_info = {"direction": "NO POSE", "x_diff": 0.0}
+                movement_info = {"direction": "NO POSE", "x_diff": 0.0, "center_x": None}
                 left_right_up_down = [[0,0]]
                 attacks = [0,0,0,0,0,0,0,0]
                 timestamp = time.time()
@@ -141,7 +141,17 @@ class PoseWorker:
                             left_right_up_down = [[0,0]]
                         else:
                             x_diff = center_x - prev_center_x
-                            if x_diff > self.movement_threshold:
+                            
+                            # Check if at screen edges (90% threshold)
+                            if center_x >= 0.9:
+                                # At right edge, force movement right
+                                movement = "MOVING RIGHT"
+                                left_right_up_down = [[1,0]]
+                            elif center_x <= 0.1:
+                                # At left edge, force movement left
+                                movement = "MOVING LEFT"
+                                left_right_up_down = [[-1,0]]
+                            elif x_diff > self.movement_threshold:
                                 movement = "MOVING RIGHT"
                                 left_right_up_down = [[1,0]]
                             elif x_diff < -self.movement_threshold:
@@ -153,11 +163,13 @@ class PoseWorker:
 
                         movement_info["direction"] = movement
                         movement_info["x_diff"] = x_diff
+                        movement_info["center_x"] = center_x
                         prev_center_x = center_x
                     else:
                         prev_center_x = None
                         movement_info["direction"] = "NO POSE"
                         movement_info["x_diff"] = 0.0
+                        movement_info["center_x"] = None
 
                 # --- Live prediction ---
                 pred_label, confidence = None, None
