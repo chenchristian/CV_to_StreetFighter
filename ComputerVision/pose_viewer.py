@@ -87,10 +87,16 @@ class PoseViewer:
         if pred_label is not None and confidence is not None:
             # Get prediction probabilities for all classes
             labels = ["punch", "kick", "idle"]
+            # Define unique colors for each action: punch=red, kick=blue, idle=green
+            label_colors = {
+                "punch": (0, 0, 255),    # Red
+                "kick": (255, 0, 0),     # Blue
+                "idle": (0, 180, 0)      # Green
+            }
             
             # Draw bars for each action
             bar_x = 10
-            bar_y_start = 90
+            bar_y_start = 10
             bar_width = 200
             bar_height = 25
             bar_spacing = 35
@@ -110,24 +116,45 @@ class PoseViewer:
                     conf_value = confidence if label == pred_label else 0.0
                 
                 fill_width = int(bar_width * conf_value)
-                color = (0, 255, 0) if label == pred_label else (100, 100, 255)
+                color = label_colors[label]
                 cv.rectangle(img, (bar_x, y_pos), (bar_x + fill_width, y_pos + bar_height), 
                            color, -1)
                 
-                # Label and percentage
-                cv.putText(img, f"{label}: {conf_value:.2%}", (bar_x + 5, y_pos + 18),
-                         cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                # Label and percentage - scale text to fit bar
+                text = f"{label}: {conf_value:.2%}".upper()
+                font_scale = 0.6
+                thickness = 2
+                text_size = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
+                
+                # Center text vertically in bar
+                text_x = bar_x + 5
+                text_y = y_pos + (bar_height + text_size[1]) // 2
+                
+                cv.putText(img, text, (text_x, text_y),
+                         cv.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
 
-        # if pred_label is not None and confidence is not None:
-        #     cv.putText(img, f"Action: {pred_label} ({confidence:.2f})", (10, 90),
-        #             cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-
-
-        # overlay movement info
-        cv.putText(img, f"Direction: {movement_info['direction']}", (10, 30),
-                   cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-        cv.putText(img, f"X diff: {movement_info['x_diff']:.3f}", (10, 60),
-                   cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        # overlay movement info with arrows
+        direction_text = movement_info['direction']
+        
+        # Draw arrow for movement direction at bottom corners
+        arrow_y = h - 50  # 50 pixels from bottom
+        arrow_length = 100
+        
+        if "MOVING RIGHT" in direction_text:
+            # Bottom right corner
+            arrow_end_x = w - 50  # 50 pixels from right edge
+            arrow_start_x = arrow_end_x - arrow_length
+            cv.arrowedLine(img, (arrow_start_x, arrow_y), (arrow_end_x, arrow_y), 
+                          (255, 255, 255), 3, tipLength=0.3)
+        elif "MOVING LEFT" in direction_text:
+            # Bottom left corner
+            arrow_start_x = 50  # 50 pixels from left edge
+            arrow_end_x = arrow_start_x + arrow_length
+            cv.arrowedLine(img, (arrow_end_x, arrow_y), (arrow_start_x, arrow_y), 
+                          (255, 255, 255), 3, tipLength=0.3)
+        
+        # cv.putText(img, f"Direction: {movement_info['direction']}", (10, 30),
+        #            cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         # Draw edge indicator zones
         center_x = movement_info.get("center_x")
