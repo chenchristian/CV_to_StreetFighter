@@ -83,10 +83,44 @@ class PoseViewer:
                     (255, 0, 0),
                     2
                 )
-        
+
         if pred_label is not None and confidence is not None:
-            cv.putText(img, f"Action: {pred_label} ({confidence:.2f})", (10, 90),
-                    cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            # Get prediction probabilities for all classes
+            labels = ["punch", "kick", "idle"]
+            
+            # Draw bars for each action
+            bar_x = 10
+            bar_y_start = 90
+            bar_width = 200
+            bar_height = 25
+            bar_spacing = 35
+            
+            for i, label in enumerate(labels):
+                y_pos = bar_y_start + i * bar_spacing
+                
+                # Background bar
+                cv.rectangle(img, (bar_x, y_pos), (bar_x + bar_width, y_pos + bar_height), 
+                           (50, 50, 50), -1)
+                
+                # Confidence bar (assuming confidence is a list/array of probabilities)
+                if isinstance(confidence, (list, np.ndarray)) and len(confidence) == 3:
+                    conf_value = confidence[i]
+                else:
+                    # If single value, only show for predicted label
+                    conf_value = confidence if label == pred_label else 0.0
+                
+                fill_width = int(bar_width * conf_value)
+                color = (0, 255, 0) if label == pred_label else (100, 100, 255)
+                cv.rectangle(img, (bar_x, y_pos), (bar_x + fill_width, y_pos + bar_height), 
+                           color, -1)
+                
+                # Label and percentage
+                cv.putText(img, f"{label}: {conf_value:.2%}", (bar_x + 5, y_pos + 18),
+                         cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        # if pred_label is not None and confidence is not None:
+        #     cv.putText(img, f"Action: {pred_label} ({confidence:.2f})", (10, 90),
+        #             cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
 
         # overlay movement info
