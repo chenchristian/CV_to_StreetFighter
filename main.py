@@ -30,7 +30,8 @@ from Util.OpenGL_Renderer import (
 from Util.Input_device import InputDevice, dummy_input
 from Util.Interface_objects import Message
 
-
+#global variable to activate\ deactivate the computer vision mode
+COMPUTER_VISION = False
 
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -177,9 +178,13 @@ class GameObject:
         keyboard_conut = 1
         joystick_count = joystick.get_count()
         for i in range(keyboard_conut):
-            self.input_device_list = [InputDevice(self, 1, 1, "external",pose_worker = self.pose_worker)]
+            self.input_device_list = [InputDevice(self, 1, 1, "keyboard")]
         for i in range(joystick_count):
             self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
+        
+        #changes to red guy for some reason
+        if(COMPUTER_VISION):
+            self.input_device_list.append(InputDevice(self, 1, 1, "external",pose_worker = self.pose_worker))
 
     def next_screen(self, screen_sequence: list = [TitleScreen]):
         self.active = False
@@ -361,24 +366,28 @@ model = LSTMWindowClassifier(
     num_classes=len(label_encoder.classes_),
     dropout=0.3
 )
-
+if(COMPUTER_VISION):
 # Load the trained weights
-model.load_state_dict(torch.load("lstm_pose_model.pth", map_location="cpu"))  # or "cuda"
-model.eval()
-# Load label encoder
-with open("label_encoder.pkl", "rb") as f:
-    label_encoder = pickle.load(f)
+    model.load_state_dict(torch.load("lstm_pose_model.pth", map_location="cpu"))  # or "cuda"
+    model.eval()
+    # Load label encoder
+    with open("label_encoder.pkl", "rb") as f:
+        label_encoder = pickle.load(f)
 
-# Create predictor
-predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
+    # Create predictor
+    predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
 
-# Start PoseWorker
-pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
-pose_worker.start()
+    # Start PoseWorker
+    pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
+    pose_worker.start()
 
-# Start PoseViewer
-pose_viewer = PoseViewer(shared_state=pose_worker)
+    # Start PoseViewer
+    pose_viewer = PoseViewer(shared_state=pose_worker)
+    game = GameObject(pose_worker=pose_worker)
+    game.screen_manager()
+else:
+    game = GameObject()
+    game.screen_manager()
+
 
 # Start game
-game = GameObject(pose_worker=pose_worker)
-game.screen_manager()
