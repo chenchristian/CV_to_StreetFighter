@@ -4,20 +4,50 @@ from Util.Common_functions import RoundSign
 from ComputerVision.pose_worker import PoseWorker
 
 keyboard_mapping = (
-    (79,),
-    (80,),
-    (82,),
-    (81,),
-    (8,),
-    (26,),
-    (20,),
-    (7,),
-    (22,),
-    (4,),
-    (21, 92),
-    (21,),
-    (116,),
+    (79,),#right arrow 0
+    (80,),#left arrow 1
+    (82,),#up arrow 2
+    (81,),#down arrow 3
+    (8,),#e 4
+    (26,),#w 5
+    (20,),#q 6
+    (7,),#d 7
+    (22,),#s 8
+    (4,),#a 9
+    (21, 92),#r, kp_4
+    (21,), #r
+    (116,),#execute??
 )
+combo_trail_key_mapping = {
+    # Default SDL scancodes: t,y,u,i,o,p,g,h,j,k,l,z,x
+    "Hadouken": (23,),
+    "Shoryuken": (28,),
+    "Shinku Hadouken": (24,),
+    "Jab String": (12,),
+    "Target Combo": (18,),
+    "Front Fierce": (19,),
+    "Tatsumaki": (10,),
+    "Joudan Sokutogeri": (11,),
+    "Release": (13,),
+    "Aerial combo": (14,),
+    "Joudan Sokutogeri EX": (15,),
+    "String": (29,),
+    "Aerial Tatsumaki EX": (27,),
+}
+
+# Hadouken → t (23)
+# Shoryuken → y (28)
+# Shinku Hadouken → u (24)
+# Jab String → i (12)
+# Target Combo → o (18)
+# Front Fierce → p (19)
+# Tatsumaki → g (10)
+# Joudan Sokutogeri → h (11)
+# Release → j (13)
+# Aerial combo → k (14)
+# Joudan Sokutogeri EX → l (15)
+# String → z (29)
+# Aerial Tatsumaki EX → x (27)
 
 joystick_name_mapping = {
     "Nintendo Switch Pro Controller": (
@@ -68,6 +98,7 @@ class InputDevice:
         if mode == "joystick":
             self.controller = joystick.Joystick(index)
             self.con = joystick_name_mapping[self.controller.get_name()]
+       
         self.press_list_showed = []
         (
             self.current_input,
@@ -94,13 +125,21 @@ class InputDevice:
         self.rand_timer = 0
         self.active_object = None
 
+        # 2 = down
+        # 4 = back
+        # 6 = forward
+        # 1 = down‑back
+        # 3 = down‑forward
+        # 5 = neutral
+        # 8 = up
+
         self.sequence_commands = (
             {"command": "QCF", "sequence": ("2", "3", "6"), "press": True},
             {"command": "QCF", "sequence": ("2", "6"), "press": True},
             {"command": "QCB", "sequence": ("2", "1", "4"), "press": True},
             {"command": "QCB", "sequence": ("2", "4"), "press": True},
             {"command": "DP", "sequence": ("6", "3", "2", "3"), "press": True},
-            {"command": "DP", "sequence": ("3", "2", "3"), "press": True},#
+            {"command": "DP", "sequence": ("3", "2", "3"), "press": True},
             {"command": "DP", "sequence": ("3", "2", "6"), "press": True},
             {"command": "DP", "sequence": ("6", "2", "6"), "press": True},
             {"command": "DP", "sequence": ("6", "2", "3"), "press": True},
@@ -109,6 +148,26 @@ class InputDevice:
         )
 
         self.sequence_index = [1 for move in self.sequence_commands]
+
+        self.combo_trail_key_mapping = combo_trail_key_mapping
+        self.combo_trail_macros = {
+            "Hadouken": [["QCF"], ["p_b6"]],
+            "Shoryuken": [["DP"], ["p_b6"]],
+            "Shinku Hadouken": [["QCF"], ["QCF"], ["p_b6"]],
+            "Jab String": [["p_b6"], ["p_b6"], ["p_b3"]],
+            "Target Combo": [["2", "p_b5"], ["2", "p_b4"]],
+            "Front Fierce": [["6", "p_b4"], ["p_b5"]],
+            "Tatsumaki": [["2", "p_b2"], ["QCB", "p_b2"]],
+            "Joudan Sokutogeri": [["p_b4"], ["QCF", "p_b3"]],
+            "Release": [["p_b4"], ["p_b4", "p_b1"], ["2", "p_b1"]],
+            "Aerial combo": [["p_b1"], ["2", "p_b5"], ["DP", "p_b5"]],
+            "Joudan Sokutogeri EX": [["2", "p_b2"], ["QCF", "p_b3", "p_b2"], ["QCB", "p_b1"]],
+            "String": [["p_b4"], ["2", "p_b5"], ["2", "p_b4"], ["p_b4", "p_b1"], ["p_b4"], ["QCF", "p_b6", "p_b5"]],
+            "Aerial Tatsumaki EX": [["p_b4"], ["2", "p_b2"], ["DP", "p_b4"], ["p_b4", "p_b1"], ["p_b5"], ["QCB", "p_b3", "p_b2"], ["QCF"], ["QCF"], ["p_b6"]],
+        }
+        self.last_combo_trail_state = {
+            title: 0 for title in self.combo_trail_key_mapping
+        }
 
     def axis_button(self, input):
         return (
@@ -125,7 +184,6 @@ class InputDevice:
         self.get_press(raw_input)
 
         
-
     def keyboard_mode(self):
         keyboard = tuple(key.get_pressed())
         self.raw_input = [
@@ -141,11 +199,21 @@ class InputDevice:
             sum(keyboard[key] for key in self.key[9]),
             sum(keyboard[key] for key in self.key[10]),
         ]
+        
+        combo_trail_inputs = []
+        for title, keys in self.combo_trail_key_mapping.items():
+            is_down = sum(keyboard[key] for key in keys) > 0
+            was_down = self.last_combo_trail_state.get(title, 0)
+            if is_down and not was_down:
+                steps = self.combo_trail_macros.get(title, [])
+                combo_trail_inputs = [item for step in steps for item in step]
+            self.last_combo_trail_state[title] = 1 if is_down else 0
+
         self.get_press(
             [
                 [
-                    self.raw_input[0] + self.raw_input[1] * -1,
-                    self.raw_input[2] + self.raw_input[3] * -1,
+                    self.raw_input[0] + self.raw_input[1] * -1, # left right
+                    self.raw_input[2] + self.raw_input[3] * -1, # up down
                 ],
                 self.raw_input[4],
                 self.raw_input[5],
@@ -154,7 +222,8 @@ class InputDevice:
                 self.raw_input[8],
                 self.raw_input[9],
                 self.raw_input[10],
-            ]
+            ],
+            extra_inputs=combo_trail_inputs,
         )
 
     def joystick_mode(self):
@@ -242,9 +311,23 @@ class InputDevice:
             ]
         )
 
-    def get_press(self, raw_input):
+    def get_press(self, raw_input, extra_inputs=None, extra_commands=None):
+        if extra_inputs is None:
+            extra_inputs = []
+        if extra_commands is None:
+            extra_commands = []
+        macro_press = bool(extra_inputs) or bool(extra_commands)
+
         self.inter_press = 0
         self.current_input.clear()
+
+        # 2 = down
+        # 4 = back
+        # 6 = forward
+        # 1 = down‑back
+        # 3 = down‑forward
+        # 5 = neutral
+        # 8 = up
 
         # ↙↓↘←•→↖↑↗
         dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][raw_input[0][0] * (1 if self.active_object == None else self.active_object.face)][
@@ -255,6 +338,8 @@ class InputDevice:
                 self.last_input[0][1] - 1
             ]
         ) + str(dpad)
+
+
         pressed_buttons = [
             "p_b" + str(ind)
             for ind in range(1, len(raw_input))
@@ -270,7 +355,11 @@ class InputDevice:
             for ind in range(1, len(raw_input))
             if (raw_input[ind] == 1 and self.last_input[ind] == 1)
         ]
+        
         commands = []
+        if extra_commands:
+            commands.extend(extra_commands)
+        
         for index, move in enumerate(self.sequence_commands):
             if (
                 dpad
@@ -299,21 +388,24 @@ class InputDevice:
                 holded_buttons.append("charge_b" + str(index))
         self.current_input = (
             [dpad, dpad_trasition]
+            + extra_inputs
             + pressed_buttons
             + released_buttons
             + holded_buttons
             + commands
         )
 
-        if raw_input != self.last_input:
+        if macro_press:
             self.inter_press = 1
             if len(self.press_list_showed) > 20:
                 self.press_list_showed.pop(0)
             self.press_list_showed.append(list(self.current_input))
             self.last_input_timer = self.input_timer
             self.input_timer = 0
+
         self.last_input = raw_input
         self.input_timer += 1
+        # print(self.current_input)
 
     def update(self, *args):
         self.mode()

@@ -1,0 +1,29 @@
+Uses SDL Scancodes
+
+keyboard_mapping = (
+    (79,),#right arrow
+    (80,),#left arrow
+    (82,),#up arrow
+    (81,),#down arrow
+    (8,),#e
+    (26,),#w
+    (20,),#q
+    (7,),#d
+    (22,),#s
+    (4,),#a
+    (21, 92),#r, kp_4
+    (21,),#r
+    (116,),#execute??
+)
+implement this in lines 69-74 of ComputerVision\external_input_source.py
+<- (left arrow) = [[-1,0],0,0,0,0,0,0,0,0]
+-> (right arrow) = [[1,0], 0,0,0,0,0,0,0,0]
+↑ (up arrow) = [[0,1],0,0,0,0,0,0,0,0]
+↓ (down arrow) = [[0,-1],0,0,0,0,0,0,0,0]
+e = [[0,0],1,0,0,0,0,0,0,0] - high kick
+w = [[0,0],0,1,0,0,0,0,0,0] - body kick
+q = [[0,0],0,0,1,0,0,0,0,0] - leg kick
+d = [[0,0],0,0,0,1,0,0,0,0] - lead hook
+s = [[0,0],0,0,0,0,1,0,0,0] - cross
+a = [[0,0],0,0,0,0,0,1,0,0] - jab
+r, kp_4 = [[0,0],0,0,0,0,0,0,1,0]/[[0,0],0,0,0,0,0,0,0,1] - ?? prob nothing, maybe a combo
