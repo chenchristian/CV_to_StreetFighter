@@ -231,10 +231,11 @@ def verify(csv_path, video_path):
 if __name__ == "__main__":
 
     csv_file = "pose_data.csv"                     # raw pose data
-    csv_file_verify = "Data/Phase1/pose_data_labeled_1.csv"   # labeled file
+    labeled_file = "pose_data_labeled_1.csv"
+    csv_file_verify = os.path.join(os.path.dirname(os.getcwd()), "Data", "Phase2", labeled_file)   # labeled file
     video_file = "pose_recording.mp4"
-
-    MODE = "label"   # change to "label", "verify", "" 
+    
+    MODE = "verify"   # change to "label", "verify", "" 
 
     if MODE == "label":
         label(csv_file, video_file)
