@@ -110,8 +110,14 @@ def get_dictionaries(current_dir):
 
 
 class GameObject:
-    def __init__(self,pose_worker=None):
+    def __init__(self, pose_worker=None):
         self.pose_worker = pose_worker
+        self.num_players = None  # Will be set by PlayerSelectionScreen (1 or 2)
+        self.network_mode = False
+        self.is_host = False
+        self.network_peer = None
+        self.remote_ip = "127.0.0.1"
+        self.port = 5555
         self.type = "game"
 
         mixer.pre_init(44100, -16, 1, 1024)
@@ -152,20 +158,23 @@ class GameObject:
         self.selected_characters = "ryu SF3", "ryu SF3"
         self.selected_stage = "trining stage"
 
-        self.Input_device_available()
+        # Initialize with default keyboard input for menu navigation
+        # Will be reconfigured after player selection
+        self.input_device_list = [InputDevice(self, 1, 1, "keyboard")]
         self.dummy_input_device = dummy_input
 
         self.screen_sequence = [
-            ModeSelectionScreen,
+            PlayerSelectionScreen,  # Start with player selection
         ]
         self.current_screen = None
         self.screen_parameters = []
 
-        self.screen_sequence, self.selected_characters, self.selected_stage = (
-            [VersusScreen],
-            ["SF3/Ryu", "SF3/Ken"],
-            ["Reencor/Training"],
-        )
+        # Uncomment below to skip player selection and go straight to game (for testing)
+        # self.screen_sequence, self.selected_characters, self.selected_stage = (
+        #     [VersusScreen],
+        #     ["SF3/Ryu", "SF3/Ken"],
+        #     ["Reencor/Training"],
+        # )
 
         self.record_input = False
         self.reproduce_input = False
@@ -174,12 +183,76 @@ class GameObject:
         self.active_stages = None
 
     def Input_device_available(self):
-        keyboard_conut = 1
-        joystick_count = joystick.get_count()
-        for i in range(keyboard_conut):
-            self.input_device_list = [InputDevice(self, 1, 1, "external",pose_worker = self.pose_worker)]
-        for i in range(joystick_count):
-            self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
+        """Configure input devices based on number of players selected"""
+        self.input_device_list = []
+        
+        # If num_players not set yet, use default single player
+        if self.num_players is None:
+            self.num_players = 1
+        
+        if self.num_players == 1:
+            # Single player: use pose worker if available, else keyboard
+            if self.pose_worker:
+                self.input_device_list = [
+                    InputDevice(self, 1, 1, "external", pose_worker=self.pose_worker)
+                ]
+            else:
+                self.input_device_list = [
+                    InputDevice(self, 1, 1, "keyboard")
+                ]
+        elif self.num_players == 2:
+            # Two players: network mode
+            if self.network_mode:
+                if self.is_host:
+                    # Host: Player 1 uses local camera, Player 2 receives from network
+                    if self.pose_worker:
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "external", 
+                                      pose_worker=self.pose_worker,
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                    else:
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "keyboard",
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                else:
+                    # Client: Player 1 receives from network, Player 2 uses local camera
+                    self.input_device_list = [
+                        InputDevice(self, 1, 1, "network",
+                                  network_peer=self.network_peer)
+                    ]
+                    if self.pose_worker:
+                        self.input_device_list.append(
+                            InputDevice(self, 2, 2, "network_sender",
+                                      pose_worker=self.pose_worker,
+                                      network_peer=self.network_peer)
+                        )
+                    else:
+                        self.input_device_list.append(
+                            InputDevice(self, 2, 2, "keyboard",
+                                      network_peer=self.network_peer)
+                        )
+            else:
+                # Network not initialized yet - use fallback
+                keyboard_conut = 1
+                joystick_count = joystick.get_count()
+                self.input_device_list = [
+                    InputDevice(self, 1, 1, "keyboard")
+                ]
+                if joystick_count > 0:
+                    for i in range(joystick_count):
+                        self.input_device_list.append(
+                            InputDevice(self, 2, i, "joystick")
+                        )
+                else:
+                    self.input_device_list.append(
+                        InputDevice(self, 2, 2, "none")
+                    )
 
     def next_screen(self, screen_sequence: list = [TitleScreen]):
         self.active = False
@@ -203,7 +276,8 @@ class GameObject:
 
                 # --- ADD POSE VIEWER POLLING HERE ---
                 try:
-                    pose_viewer.poll()
+                    if hasattr(self, 'pose_viewer') and self.pose_viewer is not None:
+                        self.pose_viewer.poll()
                 except:
                     pass
                 # ------------------------------------
@@ -365,20 +439,13 @@ model = LSTMWindowClassifier(
 # Load the trained weights
 model.load_state_dict(torch.load("lstm_pose_model.pth", map_location="cpu"))  # or "cuda"
 model.eval()
-# Load label encoder
-with open("label_encoder.pkl", "rb") as f:
-    label_encoder = pickle.load(f)
 
 # Create predictor
 predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
 
-# Start PoseWorker
+# Initialize pose worker (don't start it yet - will be started based on player selection)
 pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
-pose_worker.start()
 
-# Start PoseViewer
-pose_viewer = PoseViewer(shared_state=pose_worker)
-
-# Start game
+# Start game (pose worker will be started based on selection)
 game = GameObject(pose_worker=pose_worker)
 game.screen_manager()

@@ -84,6 +84,121 @@ class TitleScreen:
         pass
 
 
+class PlayerSelectionScreen:
+    """Screen to select number of players (1 or 2)"""
+    def __init__(self, game, *args):
+        game.camera_focus_point = [0, 0, 400]
+        self.game = game
+        
+        # Store selection in game object
+        self.game.num_players = None  # Will be: 1 or 2
+        
+        self.player_options = {
+            "1 Player": 1,
+            "2 Players (Network)": 2,
+        }
+        
+        self.mode_menu = [
+            Menu_Item_String(
+                game=game, 
+                name=option, 
+                string=option, 
+                pos=(-550, 250 - index * 100, 0)
+            )
+            for index, option in enumerate(self.player_options.keys())
+        ]
+        
+        self.menu_selectors = [
+            Menu_Selector(
+                game=game,
+                inputdevice=game.input_device_list[0] if len(game.input_device_list) > 0 else game.dummy_input_device,
+                menu=self.mode_menu,
+                index=0,
+            )
+        ]
+        self.selection_timer = 60
+
+    def __loop__(self):
+        for mode in self.mode_menu:
+            mode.update(self.game.camera_focus_point)
+            mode.draw(self.game.screen, self.game.camera.pos)
+        for selector in self.menu_selectors:
+            selector.update(self.game.camera_focus_point)
+            selector.draw(self.game.screen, self.game.camera.pos)
+        if not (None in [selected.selected_name for selected in self.menu_selectors]):
+            self.selection_timer -= 1
+            if self.selection_timer == 0:
+                self.game.active = False
+        else:
+            self.selection_timer = 120
+
+    def __dein__(self):
+        # Store the selected number of players
+        selected_option = self.menu_selectors[0].selected_name
+        self.game.num_players = self.player_options[selected_option]
+        
+        # Start appropriate pose workers based on selection
+        if self.game.num_players == 1:
+            # Single player: use regular pose worker
+            if self.game.pose_worker:
+                self.game.pose_worker.start()
+                # Set up pose viewer for single player
+                try:
+                    from ComputerVision.pose_viewer import PoseViewer
+                    self.game.pose_viewer = PoseViewer(shared_state=self.game.pose_worker)
+                except:
+                    self.game.pose_viewer = None
+        elif self.game.num_players == 2:
+            # Two players: network mode - initialize network
+            self.game.network_mode = True
+            from Util.network_peer import NetworkPeer
+            
+            # For now, use command line args or defaults
+            # In a full implementation, you'd have a network setup screen
+            import sys
+            if "--host" in sys.argv:
+                self.game.is_host = True
+                self.game.remote_ip = "127.0.0.1"
+            elif "--client" in sys.argv:
+                self.game.is_host = False
+                # Get IP from args or use default
+                try:
+                    ip_idx = sys.argv.index("--ip")
+                    self.game.remote_ip = sys.argv[ip_idx + 1]
+                except (ValueError, IndexError):
+                    self.game.remote_ip = "127.0.0.1"
+            else:
+                # Default to host if no args
+                self.game.is_host = True
+                self.game.remote_ip = "127.0.0.1"
+            
+            # Initialize network peer
+            self.game.network_peer = NetworkPeer(
+                host=self.game.is_host,
+                remote_ip=self.game.remote_ip,
+                port=self.game.port
+            )
+            self.game.network_peer.start()
+            
+            # Start pose worker
+            if self.game.pose_worker:
+                self.game.pose_worker.start()
+                try:
+                    from ComputerVision.pose_viewer import PoseViewer
+                    self.game.pose_viewer = PoseViewer(shared_state=self.game.pose_worker)
+                except:
+                    self.game.pose_viewer = None
+        
+        # Reinitialize input devices with the selected setup
+        self.game.Input_device_available()
+        
+        # Set default characters and stage, then go directly to game
+        self.game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+        self.game.selected_stage = ["Reencor/Training"]
+        # Go directly to versus screen (skip character selection)
+        self.game.screen_sequence += [VersusScreen]
+
+
 class ModeSelectionScreen:
     def __init__(self, game, *args):
         game.camera_focus_point = [0, 0, 400]

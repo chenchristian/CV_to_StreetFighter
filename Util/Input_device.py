@@ -2,6 +2,7 @@ from pygame import joystick, key
 from random import uniform, choice
 from Util.Common_functions import RoundSign
 from ComputerVision.pose_worker import PoseWorker
+from Util.network_peer import NetworkPeer
 
 keyboard_mapping = (
     (79,),
@@ -48,9 +49,10 @@ joystick_name_mapping = {
 }
 
 class InputDevice:
-    def __init__(self, game, team=1, index=0, mode="none", pose_worker=None):
+    def __init__(self, game, team=1, index=0, mode="none", pose_worker=None, network_peer=None):
         self.game = game
         self.pose_worker = pose_worker
+        self.network_peer = network_peer
         self.type = "input"
         self.team, self.key, self.mode = (
             team,
@@ -63,6 +65,8 @@ class InputDevice:
                 "record": self.record_mode,
                 "none": self.none_mode,
                 "random": self.random_mode,
+                "network": self.network_mode,  # Receive inputs from network
+                "network_sender": self.network_sender_mode,  # Send local inputs to network
             }[mode],
         )
         if mode == "joystick":
@@ -122,6 +126,11 @@ class InputDevice:
         if self.pose_worker is None:
             return  
         raw_input = self.pose_worker.get_latest_game_input()
+        
+        # If network_peer is available, also send inputs to network
+        if self.network_peer and self.network_peer.is_connected():
+            self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+        
         self.get_press(raw_input)
 
         
@@ -141,21 +150,25 @@ class InputDevice:
             sum(keyboard[key] for key in self.key[9]),
             sum(keyboard[key] for key in self.key[10]),
         ]
-        self.get_press(
+        processed_input = [
             [
-                [
-                    self.raw_input[0] + self.raw_input[1] * -1,
-                    self.raw_input[2] + self.raw_input[3] * -1,
-                ],
-                self.raw_input[4],
-                self.raw_input[5],
-                self.raw_input[6],
-                self.raw_input[7],
-                self.raw_input[8],
-                self.raw_input[9],
-                self.raw_input[10],
-            ]
-        )
+                self.raw_input[0] + self.raw_input[1] * -1,
+                self.raw_input[2] + self.raw_input[3] * -1,
+            ],
+            self.raw_input[4],
+            self.raw_input[5],
+            self.raw_input[6],
+            self.raw_input[7],
+            self.raw_input[8],
+            self.raw_input[9],
+            self.raw_input[10],
+        ]
+        
+        # If network_peer is available, also send inputs to network
+        if self.network_peer and self.network_peer.is_connected():
+            self.network_peer.send_input(processed_input, frame=self.game.emu_frame)
+        
+        self.get_press(processed_input)
 
     def joystick_mode(self):
         self.raw_input = [
@@ -241,6 +254,34 @@ class InputDevice:
                 self.raw_input[10],
             ]
         )
+
+    def network_mode(self):
+        """Receive inputs from network peer"""
+        if self.network_peer is None:
+            return
+        
+        # Get latest input from network
+        network_input = self.network_peer.get_latest_input()
+        if network_input is not None:
+            self.get_press(network_input)
+        else:
+            # No input received, use neutral
+            self.get_press([[0,0],0,0,0,0,0,0,0,0])
+
+    def network_sender_mode(self):
+        """Send local inputs to network and use them locally"""
+        if self.pose_worker is None:
+            return
+        
+        # Get local input from pose worker
+        raw_input = self.pose_worker.get_latest_game_input()
+        
+        # Send to network peer
+        if self.network_peer and self.network_peer.is_connected():
+            self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+        
+        # Use the input locally
+        self.get_press(raw_input)
 
     def get_press(self, raw_input):
         self.inter_press = 0
