@@ -17,7 +17,7 @@ def draw_text_outline(img, text, pos, font, scale, thickness, text_color, outlin
 # -----------------------------
 # Label Function
 # -----------------------------
-def label(csv_path, video_path):
+def label(csv_path: str, video_path: str, name: str):
     df = pd.read_csv(csv_path)
     num_frames = len(df)
 
@@ -128,7 +128,7 @@ def label(csv_path, video_path):
     df["label"] = labels
     script_dir = os.path.dirname(os.path.abspath(__file__))   # ComputerVision folder
     parent_dir = os.path.dirname(script_dir)                  # CV_to_StreetFighter
-    data_folder = os.path.join(parent_dir, "Data", "Phase2", "Christian")
+    data_folder = os.path.join(parent_dir, "Data", "Phase2", name)
     os.makedirs(data_folder, exist_ok=True)
 
     base_name = os.path.splitext(os.path.basename(csv_path))[0]
@@ -222,16 +222,16 @@ if __name__ == "__main__":
     csv_file = "pose_data.csv"
     video_file = "pose_recording.mp4"
 
-    MODE = "verify"   # "label" or "verify"
-
+    MODE = "label"   # "label" or "verify"
+    name = "Nathan"
     if MODE == "label":
-        label(csv_file, video_file)
+        label(csv_file, video_file, name)
     elif MODE == "verify":
         # Compute verification file path in Data/Phase2/Christian
         parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         labeled_file = "pose_data_labeled_2.csv"
 
         #add your own name
-        csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", "Christian", labeled_file)
+        csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", "Nathan", labeled_file)
         verify(csv_file_verify, video_file)
 
