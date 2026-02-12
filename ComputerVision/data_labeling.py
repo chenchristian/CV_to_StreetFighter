@@ -12,28 +12,12 @@ def draw_text_outline(img, text, pos, font, scale, thickness, text_color, outlin
     # Main text
     cv2.putText(img, text, (x, y), font, scale, text_color, thickness, cv2.LINE_AA)
 
+
+
 # -----------------------------
 # Label Function
 # -----------------------------
 def label(csv_path, video_path):
-    import os
-    import cv2
-    import pandas as pd
-    import numpy as np
-
-    # -----------------------------
-    # Helper: Draw Text with Outline
-    # -----------------------------
-    def draw_text_outline(img, text, pos, font, scale, thickness, text_color, outline_color=(0,0,0)):
-        x, y = pos
-        # Draw outline
-        cv2.putText(img, text, (x, y), font, scale, outline_color, thickness + 2, cv2.LINE_AA)
-        # Draw main text
-        cv2.putText(img, text, (x, y), font, scale, text_color, thickness, cv2.LINE_AA)
-
-    # -----------------------------
-    # Load CSV
-    # -----------------------------
     df = pd.read_csv(csv_path)
     num_frames = len(df)
 
@@ -41,7 +25,6 @@ def label(csv_path, video_path):
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video file: {video_path}")
 
-    # Key -> Move mapping
     key_map = {
         # Kicks
         ord('q'): "rear_low_kick",
@@ -60,14 +43,14 @@ def label(csv_path, video_path):
         ord('x'): "shoryuken",
         ord('c'): "grab",   
         # Idle
+        ord('l'): "idle",
         ord('i'): "idle"
     }
 
     labels = ["idle"] * num_frames
     frame_idx = 0
-    paused = True
-    current_label = "idle"
     last_label_frame = 0
+    current_label = "idle"
 
     cv2.namedWindow("Labeling Tool", cv2.WINDOW_NORMAL)
 
@@ -83,17 +66,17 @@ def label(csv_path, video_path):
         font = cv2.FONT_HERSHEY_SIMPLEX
 
         # Frame + current label
-        draw_text_outline(frame, f"Frame: {frame_idx+1}/{num_frames}",
-                          (20,40), font, 1.0, 2, (255,255,255))
-        draw_text_outline(frame, f"Current Label: {current_label}",
-                          (20,80), font, 1.0, 2, (255,255,255))
+        draw_text_outline(frame, f"Frame: {frame_idx+1}/{num_frames}", (20,40), font, 1.0, 2, (255,255,255))
+        draw_text_outline(frame, f"Current Label: {current_label}", (20,80), font, 1.0, 2, (255,255,255))
 
-                # Column layout
+        # -----------------------------
+        # Legend / controls
+        # -----------------------------
         start_y = 140
-        line_gap = 25  # slightly smaller spacing
+        line_gap = 25
         col1_x = 20
         col2_x = 170
-        col3_x = 340  # moved closer so it fits on most screens
+        col3_x = 340
 
         # Punches (orange)
         draw_text_outline(frame, "PUNCHES", (col1_x, start_y), font, 0.6, 1, (0,165,255))
@@ -109,17 +92,16 @@ def label(csv_path, video_path):
 
         # Specials + Idle (purple)
         draw_text_outline(frame, "SPECIAL / STATE", (col3_x, start_y), font, 0.6, 1, (255,0,255))
-        specials = ["Z = Hadouken (fireball)", "X = Shoryuken (spinning uppercut)", "C = Grab", "I = Idle"]
+        specials = ["Z = Hadouken (fireball)", "X = Shoryuken (spinning uppercut)", "C = Grab", "l or i = Idle"]
         for i, text in enumerate(specials):
             draw_text_outline(frame, text, (col3_x, start_y + (i+1)*line_gap), font, 0.5, 1, (255,255,255))
 
-        # Controls footer
+        # Footer controls
         draw_text_outline(frame, "Comma , = Back | Period . = Forward | 0 = Quit",
                           (20, frame.shape[0] - 20), font, 0.5, 1, (200,200,200))
 
-
         # -----------------------------
-        # Show frame
+        # Show frame and handle keys
         # -----------------------------
         cv2.imshow("Labeling Tool", frame)
         key = cv2.waitKey(0) & 0xFF
@@ -128,9 +110,9 @@ def label(csv_path, video_path):
             break
         elif key in key_map:
             current_label = key_map[key]
-        elif key == 81 or key == ord(','):  # left arrow fallback
+        elif key == 81 or key == ord(','):
             frame_idx = max(0, frame_idx - 1)
-        elif key == 83 or key == ord('.'):  # right arrow fallback
+        elif key == 83 or key == ord('.'):
             frame_idx = min(num_frames - 1, frame_idx + 1)
 
         # Interpolation
@@ -140,14 +122,13 @@ def label(csv_path, video_path):
             labels[f] = current_label
         last_label_frame = frame_idx
 
-
     # -----------------------------
-    # Save CSV
+    # Save CSV to CV_to_StreetFighter/Data/Phase2/Christian
     # -----------------------------
     df["label"] = labels
-    cwd = os.getcwd()
-    parent = os.path.dirname(cwd)
-    data_folder = os.path.join(parent, "Data/Phase2")
+    script_dir = os.path.dirname(os.path.abspath(__file__))   # ComputerVision folder
+    parent_dir = os.path.dirname(script_dir)                  # CV_to_StreetFighter
+    data_folder = os.path.join(parent_dir, "Data", "Phase2", "Christian")
     os.makedirs(data_folder, exist_ok=True)
 
     base_name = os.path.splitext(os.path.basename(csv_path))[0]
@@ -163,6 +144,13 @@ def label(csv_path, video_path):
     cap.release()
     cv2.destroyAllWindows()
     print(f"Labeled CSV saved to: {output_path}")
+
+
+# -----------------------------
+# Main
+# -----------------------------
+
+
 
     # -----------------------------
 # Verify Function
@@ -228,18 +216,22 @@ def verify(csv_path, video_path):
 # -----------------------------
 # Main
 # -----------------------------
-if __name__ == "__main__":
-
-    csv_file = "pose_data.csv"                     # raw pose data
-    labeled_file = "pose_data_labeled_1.csv"
-    csv_file_verify = os.path.join(os.path.dirname(os.getcwd()), "Data", "Phase2", labeled_file)   # labeled file
-    video_file = "pose_recording.mp4"
     
-    MODE = "verify"   # change to "label", "verify", "" 
+if __name__ == "__main__":
+    # Paths relative to ComputerVision folder
+    csv_file = "pose_data.csv"
+    video_file = "pose_recording.mp4"
+
+    MODE = "verify"   # "label" or "verify"
 
     if MODE == "label":
         label(csv_file, video_file)
     elif MODE == "verify":
+        # Compute verification file path in Data/Phase2/Christian
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        labeled_file = "pose_data_labeled_2.csv"
+
+        #add your own name
+        csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", "Christian", labeled_file)
         verify(csv_file_verify, video_file)
-    
 
