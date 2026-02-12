@@ -1,6 +1,11 @@
 import os
 import string
 import json
+import warnings
+
+# Suppress protobuf deprecation warnings from MediaPipe
+warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
+
 from pygame import (
     init,
     quit,
@@ -110,7 +115,7 @@ def get_dictionaries(current_dir):
 
 
 class GameObject:
-    def __init__(self, pose_worker=None):
+    def __init__(self, pose_worker=None, use_keyboard=False):
         self.pose_worker = pose_worker
         self.num_players = None  # Will be set by PlayerSelectionScreen (1 or 2)
         self.network_mode = False
@@ -118,6 +123,7 @@ class GameObject:
         self.network_peer = None
         self.remote_ip = "127.0.0.1"
         self.port = 5555
+        self.use_keyboard = use_keyboard  # If True, use keyboard instead of camera
         self.type = "game"
 
         mixer.pre_init(44100, -16, 1, 1024)
@@ -204,8 +210,17 @@ class GameObject:
             # Two players: network mode
             if self.network_mode:
                 if self.is_host:
-                    # Host: Player 1 uses local camera, Player 2 receives from network
-                    if self.pose_worker:
+                    # Host: Player 1 uses local input, Player 2 receives from network
+                    if self.use_keyboard:
+                        # Use keyboard for Player 1
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "keyboard",
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                    elif self.pose_worker:
+                        # Use camera for Player 1
                         self.input_device_list = [
                             InputDevice(self, 1, 1, "external", 
                                       pose_worker=self.pose_worker,
@@ -214,6 +229,7 @@ class GameObject:
                                       network_peer=self.network_peer)
                         ]
                     else:
+                        # Fallback to keyboard
                         self.input_device_list = [
                             InputDevice(self, 1, 1, "keyboard",
                                       network_peer=self.network_peer),
@@ -221,12 +237,18 @@ class GameObject:
                                       network_peer=self.network_peer)
                         ]
                 else:
-                    # Client: Player 1 receives from network, Player 2 uses local camera
+                    # Client: Player 1 receives from network, Player 2 uses local input
                     self.input_device_list = [
                         InputDevice(self, 1, 1, "network",
                                   network_peer=self.network_peer)
                     ]
-                    if self.pose_worker:
+                    # Use keyboard if flag is set, otherwise try camera
+                    if self.use_keyboard:
+                        self.input_device_list.append(
+                            InputDevice(self, 2, 2, "keyboard",
+                                      network_peer=self.network_peer)
+                        )
+                    elif self.pose_worker:
                         self.input_device_list.append(
                             InputDevice(self, 2, 2, "network_sender",
                                       pose_worker=self.pose_worker,
@@ -443,9 +465,14 @@ model.eval()
 # Create predictor
 predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
 
+# Check for --no-camera or --keyboard flag
+import sys
+use_keyboard = "--no-camera" in sys.argv or "--keyboard" in sys.argv
+
 # Initialize pose worker (don't start it yet - will be started based on player selection)
-pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
+# Only create if not using keyboard
+pose_worker = None if use_keyboard else PoseWorker(camera_index=0, live_predictor=predictor)
 
 # Start game (pose worker will be started based on selection)
-game = GameObject(pose_worker=pose_worker)
+game = GameObject(pose_worker=pose_worker, use_keyboard=use_keyboard)
 game.screen_manager()

@@ -260,25 +260,67 @@ class InputDevice:
         if self.network_peer is None:
             return
         
+        # Check if connected
+        if not self.network_peer.is_connected():
+            # Not connected yet, use neutral input (11 elements: dpad + 10 buttons)
+            self.get_press([[0,0],0,0,0,0,0,0,0,0,0,0])
+            return
+        
         # Get latest input from network
         network_input = self.network_peer.get_latest_input()
         if network_input is not None:
+            # Ensure input has correct format (11 elements: dpad + 10 buttons)
+            if len(network_input) < 11:
+                # Pad with zeros if needed
+                padded_input = list(network_input)
+                while len(padded_input) < 11:
+                    padded_input.append(0)
+                network_input = padded_input
             self.get_press(network_input)
         else:
-            # No input received, use neutral
-            self.get_press([[0,0],0,0,0,0,0,0,0,0])
+            # No input received, use neutral (11 elements: dpad + 10 buttons)
+            self.get_press([[0,0],0,0,0,0,0,0,0,0,0,0])
 
     def network_sender_mode(self):
         """Send local inputs to network and use them locally"""
-        if self.pose_worker is None:
-            return
-        
-        # Get local input from pose worker
-        raw_input = self.pose_worker.get_latest_game_input()
+        # Get local input from pose worker or keyboard
+        if self.pose_worker:
+            raw_input = self.pose_worker.get_latest_game_input()
+        else:
+            # Fallback to keyboard if no pose worker
+            keyboard = tuple(key.get_pressed())
+            self.raw_input = [
+                sum(keyboard[key] for key in self.key[0]),
+                sum(keyboard[key] for key in self.key[1]),
+                sum(keyboard[key] for key in self.key[2]),
+                sum(keyboard[key] for key in self.key[3]),
+                sum(keyboard[key] for key in self.key[4]),
+                sum(keyboard[key] for key in self.key[5]),
+                sum(keyboard[key] for key in self.key[6]),
+                sum(keyboard[key] for key in self.key[7]),
+                sum(keyboard[key] for key in self.key[8]),
+                sum(keyboard[key] for key in self.key[9]),
+                sum(keyboard[key] for key in self.key[10]),
+            ]
+            raw_input = [
+                [
+                    self.raw_input[0] + self.raw_input[1] * -1,
+                    self.raw_input[2] + self.raw_input[3] * -1,
+                ],
+                self.raw_input[4],
+                self.raw_input[5],
+                self.raw_input[6],
+                self.raw_input[7],
+                self.raw_input[8],
+                self.raw_input[9],
+                self.raw_input[10],
+            ]
         
         # Send to network peer
-        if self.network_peer and self.network_peer.is_connected():
-            self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+        if self.network_peer:
+            if self.network_peer.is_connected():
+                self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+            # If not connected, input is still used locally (will be sent once connected)
         
         # Use the input locally
         self.get_press(raw_input)
@@ -286,6 +328,22 @@ class InputDevice:
     def get_press(self, raw_input):
         self.inter_press = 0
         self.current_input.clear()
+
+        # Ensure last_input matches raw_input format (pad if needed)
+        if len(self.last_input) != len(raw_input):
+            # Pad last_input to match raw_input length
+            if len(self.last_input) < len(raw_input):
+                # Pad with zeros
+                padded_last = list(self.last_input)
+                while len(padded_last) < len(raw_input):
+                    padded_last.append(0)
+                self.last_input = padded_last
+            else:
+                # Truncate last_input to match raw_input
+                self.last_input = list(self.last_input[:len(raw_input)])
+                # Ensure first element is a list
+                if len(self.last_input) > 0 and not isinstance(self.last_input[0], list):
+                    self.last_input = [[0, 0]] + self.last_input[1:]
 
         # ↙↓↘←•→↖↑↗
         dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][raw_input[0][0] * (1 if self.active_object == None else self.active_object.face)][
@@ -299,17 +357,17 @@ class InputDevice:
         pressed_buttons = [
             "p_b" + str(ind)
             for ind in range(1, len(raw_input))
-            if (raw_input[ind] == 1 and self.last_input[ind] == 0)
+            if (ind < len(raw_input) and ind < len(self.last_input) and raw_input[ind] == 1 and self.last_input[ind] == 0)
         ]
         released_buttons = [
             "r_b" + str(ind)
             for ind in range(1, len(raw_input))
-            if (raw_input[ind] == 0 and self.last_input[ind] == 1)
+            if (ind < len(raw_input) and ind < len(self.last_input) and raw_input[ind] == 0 and self.last_input[ind] == 1)
         ]
         holded_buttons = [
             "h_b" + str(ind)
             for ind in range(1, len(raw_input))
-            if (raw_input[ind] == 1 and self.last_input[ind] == 1)
+            if (ind < len(raw_input) and ind < len(self.last_input) and raw_input[ind] == 1 and self.last_input[ind] == 1)
         ]
         commands = []
         for index, move in enumerate(self.sequence_commands):

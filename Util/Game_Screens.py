@@ -172,6 +172,10 @@ class PlayerSelectionScreen:
                 self.game.is_host = True
                 self.game.remote_ip = "127.0.0.1"
             
+            # Check for --no-camera or --keyboard flag
+            if "--no-camera" in sys.argv or "--keyboard" in sys.argv:
+                self.game.use_keyboard = True
+            
             # Initialize network peer
             self.game.network_peer = NetworkPeer(
                 host=self.game.is_host,
@@ -180,14 +184,36 @@ class PlayerSelectionScreen:
             )
             self.game.network_peer.start()
             
-            # Start pose worker
-            if self.game.pose_worker:
+            # Wait for connection to establish
+            import time
+            max_wait = 60  # Wait up to 60 seconds for connection
+            wait_count = 0
+            print("[Network] Waiting for network connection...")
+            while not self.game.network_peer.is_connected() and wait_count < max_wait * 10:
+                time.sleep(0.1)
+                wait_count += 1
+                # Print status every 5 seconds
+                if wait_count % 50 == 0:
+                    elapsed = wait_count / 10
+                    print(f"[Network] Still waiting for connection... ({elapsed:.1f}s)")
+            
+            if self.game.network_peer.is_connected():
+                print("[Network] ✓ Connection established, starting game")
+            else:
+                print("[Network] ✗ WARNING: Connection not established after 60 seconds")
+                print("[Network] Make sure the other player is running with --client (or --host)")
+                print("[Network] Game will continue but network features won't work")
+            
+            # Start pose worker only if not using keyboard
+            if self.game.pose_worker and not self.game.use_keyboard:
                 self.game.pose_worker.start()
                 try:
                     from ComputerVision.pose_viewer import PoseViewer
                     self.game.pose_viewer = PoseViewer(shared_state=self.game.pose_worker)
                 except:
                     self.game.pose_viewer = None
+            else:
+                self.game.pose_viewer = None
         
         # Reinitialize input devices with the selected setup
         self.game.Input_device_available()
