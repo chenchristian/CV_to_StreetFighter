@@ -145,7 +145,9 @@ def label(csv_path, video_path):
     # Save CSV
     # -----------------------------
     df["label"] = labels
-    data_folder = os.path.join("Data/Phase2")
+    cwd = os.getcwd()
+    parent = os.path.dirname(cwd)
+    data_folder = os.path.join(parent, "Data/Phase2")
     os.makedirs(data_folder, exist_ok=True)
 
     base_name = os.path.splitext(os.path.basename(csv_path))[0]
@@ -232,7 +234,7 @@ if __name__ == "__main__":
     csv_file_verify = "Data/Phase1/pose_data_labeled_1.csv"   # labeled file
     video_file = "pose_recording.mp4"
 
-    MODE = "verify"   # change to "label", "verify", "" 
+    MODE = "label"   # change to "label", "verify", "" 
 
     if MODE == "label":
         label(csv_file, video_file)
