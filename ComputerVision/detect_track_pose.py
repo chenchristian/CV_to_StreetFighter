@@ -60,20 +60,20 @@ def record_pose_data(mode_test=False, csv_filename="pose_data.csv", movement_inf
                 lms = results.pose_landmarks.landmark
                 lms_filtered = [lm for i, lm in enumerate(lms) if i not in remove_indices]
 
-                # Draw landmarks
-                #for lm in lms_filtered:
-                    #cx, cy = int(lm.x * w), int(lm.y * h)
-                    #cv.circle(frame_resized, (cx, cy), 5, (0, 255, 0), -1)
+                #Draw landmarks
+                for lm in lms_filtered:
+                    cx, cy = int(lm.x * w), int(lm.y * h)
+                    cv.circle(frame_resized, (cx, cy), 5, (0, 255, 0), -1)
 
-                # Draw connections
-                #connections = [c for c in mp_pose.POSE_CONNECTIONS
-                               #if c[0] not in remove_indices and c[1] not in remove_indices]
-                #for start_idx, end_idx in connections:
-                    #start = lms[start_idx]
-                    #end = lms[end_idx]
-                    #x1, y1 = int(start.x * w), int(start.y * h)
-                    #x2, y2 = int(end.x * w), int(end.y * h)
-                    #cv.line(frame_resized, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                #Draw connections
+                connections = [c for c in mp_pose.POSE_CONNECTIONS
+                               if c[0] not in remove_indices and c[1] not in remove_indices]
+                for start_idx, end_idx in connections:
+                    start = lms[start_idx]
+                    end = lms[end_idx]
+                    x1, y1 = int(start.x * w), int(start.y * h)
+                    x2, y2 = int(end.x * w), int(end.y * h)
+                    cv.line(frame_resized, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
                 # Pose vector
                 vector = np.array([coord for lm in lms_filtered for coord in (lm.x, lm.y, lm.z, lm.visibility)], dtype=np.float32)
