@@ -152,7 +152,7 @@ def label(csv_path: str, video_path: str, name: str):
 
 
 
-    # -----------------------------
+# -----------------------------
 # Verify Function
 # -----------------------------
 def verify(csv_path, video_path):
@@ -232,6 +232,6 @@ if __name__ == "__main__":
         labeled_file = "pose_data_labeled_2.csv"
 
         #add your own name
-        csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", "Nathan", labeled_file)
+        csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", name, labeled_file)
         verify(csv_file_verify, video_file)
 
