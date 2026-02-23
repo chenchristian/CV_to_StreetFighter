@@ -105,7 +105,7 @@ def create_video(csv_path, output_video, W=640, H=480, fps=30):
 
 
 if __name__ == "__main__":
-    csv_path = "/Users/christianchen/CV_to_StreetFighter/DataAugmentation/AugmentedData/pose_data_labeled_1_shift5.csv"
+    csv_path = "Data/Phase2/Test_clips/jab_Christian_31.csv"
     output_video = "output_pose_video.mp4"
 
     create_video(csv_path, output_video, W=640, H=480, fps=30)
