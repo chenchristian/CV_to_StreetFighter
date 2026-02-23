@@ -7,7 +7,35 @@ import threading
 import queue
 import pickle
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
+
+def test_port_connectivity(host: str, port: int, timeout: float = 2.0) -> Tuple[bool, str]:
+    """
+    Test if a TCP port is accessible.
+    Returns (success, message)
+    """
+    try:
+        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_sock.settimeout(timeout)
+        result = test_sock.connect_ex((host, port))
+        test_sock.close()
+        
+        if result == 0:
+            return True, f"Port {port} is open and accessible"
+        elif result == 61:  # Connection refused (macOS)
+            return False, f"Port {port} is closed or host is not listening"
+        elif result == 111:  # Connection refused (Linux)
+            return False, f"Port {port} is closed or host is not listening"
+        elif result == 10061:  # Connection refused (Windows)
+            return False, f"Port {port} is closed or host is not listening"
+        elif result == 65:  # No route to host (macOS)
+            return False, f"Port {port} is blocked by firewall or network unreachable"
+        elif result == 113:  # No route to host (Linux)
+            return False, f"Port {port} is blocked by firewall or network unreachable"
+        else:
+            return False, f"Port {port} test failed with error code {result}"
+    except Exception as e:
+        return False, f"Port test error: {e}"
 
 class NetworkPeer:
     """
@@ -206,24 +234,40 @@ class NetworkPeer:
                     except:
                         pass
                     if retry_count < max_retries:
-                        if retry_count % 5 == 0:  # Print every 5 attempts
-                            error_msg = str(e)
-                            error_code = getattr(e, 'errno', None)
-                            
-                            if "No route to host" in error_msg or error_code == 113 or "EHOSTUNREACH" in str(e):
-                                print(f"[Network] ✗ No route to host - Network unreachable")
+                        error_msg = str(e)
+                        error_code = getattr(e, 'errno', None)
+                        
+                        # Show errno 65 (No route to host) immediately - it's a critical network error
+                        is_no_route = ("No route to host" in error_msg or error_code == 113 or 
+                                      error_code == 65 or "EHOSTUNREACH" in str(e))
+                        
+                        # Print immediately for critical errors, or every 5 attempts for others
+                        should_print = is_no_route or (retry_count % 5 == 0)
+                        
+                        if should_print:
+                            if is_no_route:
+                                print(f"[Network] ✗ No route to host - Network unreachable (errno {error_code})")
+                                print(f"[Network] NOTE: If ping works but connection fails, this is likely a FIREWALL issue.")
+                                
+                                # Test port connectivity for better diagnostics
+                                port_test_success, port_test_msg = test_port_connectivity(self.remote_ip, self.port)
+                                print(f"[Network] Port test: {port_test_msg}")
+                                
                                 print(f"[Network] Troubleshooting:")
-                                print(f"[Network]   1. Verify IP address is correct: {self.remote_ip}")
-                                print(f"[Network]   2. Check both computers are on the same network:")
-                                print(f"[Network]      - Same Wi-Fi network, OR")
-                                print(f"[Network]      - Same Ethernet subnet")
-                                print(f"[Network]   3. Test connectivity:")
-                                print(f"[Network]      - Run: ping {self.remote_ip}")
-                                print(f"[Network]      - If ping fails, IP is wrong or not on same network")
-                                print(f"[Network]   4. Get host IP address:")
-                                print(f"[Network]      - On host, run: ifconfig (macOS/Linux) or ipconfig (Windows)")
-                                print(f"[Network]      - Look for IP under your active network interface")
+                                print(f"[Network]   1. FIREWALL CHECK (most likely cause if ping works):")
+                                print(f"[Network]      - macOS: System Settings > Network > Firewall > Options")
+                                print(f"[Network]        → Allow Python incoming connections")
+                                print(f"[Network]        → Or add rule for port {self.port}")
+                                print(f"[Network]      - Windows: Windows Defender Firewall > Allow an app")
+                                print(f"[Network]        → Allow Python through firewall")
+                                print(f"[Network]      - Linux: sudo ufw allow {self.port}/tcp")
+                                print(f"[Network]   2. Verify host is listening:")
+                                print(f"[Network]      - On HOST, check it shows: 'Host listening on port {self.port}...'")
+                                print(f"[Network]      - On HOST, test: nc -l {self.port} (should not error)")
+                                print(f"[Network]   3. Verify IP address is correct: {self.remote_ip}")
+                                print(f"[Network]   4. Check both computers are on the same network")
                                 print(f"[Network]   5. If using VPN, try disconnecting VPN")
+                                print(f"[Network]   6. Make sure host is started FIRST with: python main.py --host")
                             elif "Network is unreachable" in error_msg or error_code == 101 or "ENETUNREACH" in str(e):
                                 print(f"[Network] ✗ Network unreachable")
                                 print(f"[Network]   - Check IP address: {self.remote_ip}")
