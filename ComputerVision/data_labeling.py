@@ -223,7 +223,7 @@ if __name__ == "__main__":
     video_file = "pose_recording.mp4"
 
     MODE = "label"   # "label" or "verify"
-    name = "Nathan"
+    name = "Christian"
     if MODE == "label":
         label(csv_file, video_file, name)
     elif MODE == "verify":
@@ -232,6 +232,6 @@ if __name__ == "__main__":
         labeled_file = "pose_data_labeled_2.csv"
 
         #add your own name
-        csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", "Nathan", labeled_file)
+        csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", name, labeled_file)
         verify(csv_file_verify, video_file)
 
