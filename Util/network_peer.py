@@ -169,7 +169,7 @@ class NetworkPeer:
         """Start as client (connect to host)."""
         # Retry connection in a thread
         def connect_to_host():
-            max_retries = 60  # Try for up to 60 seconds
+            max_retries = 120  # Time to connect 
             retry_count = 0
             
             while not self._stop_event.is_set() and not self.connected and retry_count < max_retries:
