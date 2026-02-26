@@ -359,10 +359,36 @@ class NetworkPeer:
         def connect_to_relay():
             max_retries = 120
             retry_count = 0
+            diagnostics_shown = False
+            start_time = time.time()
             
             # Test connectivity first
             if retry_count == 0:
                 print(f"[Network] Connecting to relay server at {self.relay_server_ip}:{self.relay_server_port}...")
+                
+                # Check if this looks like a Railway/Render domain
+                is_railway_domain = ".railway.app" in self.relay_server_ip or ".up.railway.app" in self.relay_server_ip
+                is_render_domain = ".onrender.com" in self.relay_server_ip
+                is_heroku_domain = ".herokuapp.com" in self.relay_server_ip
+                
+                if is_railway_domain:
+                    print(f"[Network] ℹ️  Detected Railway domain ({self.relay_server_ip})")
+                    print(f"[Network] ℹ️  For Railway, you need to use a TCP Proxy:")
+                    print(f"[Network]   1. Go to Railway dashboard → Your Service → Settings")
+                    print(f"[Network]   2. Add a TCP Proxy (under Networking section)")
+                    print(f"[Network]   3. Railway will give you a TCP proxy hostname and port")
+                    print(f"[Network]   4. Use the TCP proxy hostname/port, NOT the app domain")
+                    print(f"[Network]   5. Example: tcp-proxy.production.up.railway.app:12345")
+                    print(f"[Network]")
+                elif is_render_domain or is_heroku_domain:
+                    print(f"[Network] ⚠️  WARNING: Detected cloud platform domain ({self.relay_server_ip})")
+                    print(f"[Network] ⚠️  Render/Heroku do NOT support raw TCP sockets")
+                    print(f"[Network] ⚠️  They only support HTTP/HTTPS connections")
+                    print(f"[Network] ⚠️  For TCP socket connections, you need:")
+                    print(f"[Network]      - Railway with TCP Proxy (recommended)")
+                    print(f"[Network]      - Or a VPS: DigitalOcean, AWS EC2, Linode, Vultr")
+                    print(f"[Network]")
+                
                 # Test if we can reach the server
                 port_test_success, port_test_msg = test_port_connectivity(self.relay_server_ip, self.relay_server_port, timeout=3.0)
                 if not port_test_success:
@@ -396,10 +422,19 @@ class NetworkPeer:
                     print(f"[Network]      → macOS: System Settings > Network > Firewall")
                     print(f"[Network]      → Linux: sudo ufw allow {self.relay_server_port}/tcp")
                     print(f"[Network]")
-                    print(f"[Network]   6. If server is on PythonAnywhere/cloud:")
+                    print(f"[Network]   6. If server is on Railway/Render/Heroku:")
+                    print(f"[Network]      → These platforms may NOT support raw TCP sockets")
+                    print(f"[Network]      → Railway/Render free tiers typically only support HTTP/HTTPS")
+                    print(f"[Network]      → For TCP sockets, you need a VPS (DigitalOcean, AWS, etc.)")
+                    print(f"[Network]      → Check Railway dashboard for public domain and port")
+                    print(f"[Network]      → Railway domain format: your-app.up.railway.app")
+                    print(f"[Network]      → If using Railway domain, make sure TCP is enabled in settings")
+                    print(f"[Network]")
+                    print(f"[Network]   7. If server is on PythonAnywhere/cloud:")
                     print(f"[Network]      → Free accounts may not allow long-running processes")
                     print(f"[Network]      → Check server console/logs for errors")
                     print(f"[Network] =========================================")
+                    diagnostics_shown = True
             
             while not self._stop_event.is_set() and not self.connected and retry_count < max_retries:
                 try:
@@ -446,31 +481,33 @@ class NetworkPeer:
                                  isinstance(e, socket.timeout))
                     
                     if retry_count < max_retries:
-                        if is_dns_error or is_timeout or retry_count % 10 == 0:
-                            if is_dns_error:
-                                print(f"[Network] ✗ DNS Resolution Error (errno {error_code})")
-                                print(f"[Network] The server address '{self.relay_server_ip}' could not be resolved.")
-                                print(f"[Network] Check:")
-                                print(f"[Network]   - Is the IP address or hostname correct?")
-                                print(f"[Network]   - Is there a typo in --relay-ip?")
-                                print(f"[Network]   - Try using the IP address instead of hostname")
-                                print(f"[Network]   - Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
-                            elif is_timeout:
-                                print(f"[Network] ✗ Connection Timeout")
-                                print(f"[Network] Cannot reach relay server at {self.relay_server_ip}:{self.relay_server_port}")
-                                print(f"[Network] Troubleshooting:")
-                                print(f"[Network]   1. Verify relay server is running:")
-                                print(f"[Network]      - On server, run: python Util/relay_server.py --port {self.relay_server_port}")
-                                print(f"[Network]      - Server should show: 'Listening on 0.0.0.0:{self.relay_server_port}'")
-                                print(f"[Network]   2. Test network connectivity:")
-                                print(f"[Network]      - Try: ping {self.relay_server_ip}")
-                                print(f"[Network]      - If ping fails, check IP address or network connection")
-                                print(f"[Network]   3. Check firewall on server allows port {self.relay_server_port}")
-                                print(f"[Network]   4. Verify IP address is correct: {self.relay_server_ip}")
-                                print(f"[Network]   5. If server is on different network, use public IP address")
-                            else:
-                                print(f"[Network] Connection error: {e}")
-                                print(f"[Network] Make sure relay server is running at {self.relay_server_ip}:{self.relay_server_port}")
+                        elapsed = time.time() - start_time
+                        if is_dns_error and not diagnostics_shown:
+                            print(f"[Network] ✗ DNS Resolution Error (errno {error_code})")
+                            print(f"[Network] The server address '{self.relay_server_ip}' could not be resolved.")
+                            print(f"[Network] Check:")
+                            print(f"[Network]   - Is the IP address or hostname correct?")
+                            print(f"[Network]   - Is there a typo in --relay-ip?")
+                            print(f"[Network]   - Try using the IP address instead of hostname")
+                            print(f"[Network]   - Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
+                            diagnostics_shown = True
+                        elif is_timeout and not diagnostics_shown:
+                            print(f"[Network] ✗ Connection Timeout")
+                            print(f"[Network] Cannot reach relay server at {self.relay_server_ip}:{self.relay_server_port}")
+                            print(f"[Network] Troubleshooting:")
+                            print(f"[Network]   1. Verify relay server is running:")
+                            print(f"[Network]      - On server, run: python Util/relay_server.py --port {self.relay_server_port}")
+                            print(f"[Network]      - Server should show: 'Listening on 0.0.0.0:{self.relay_server_port}'")
+                            print(f"[Network]   2. Test network connectivity:")
+                            print(f"[Network]      - Try: ping {self.relay_server_ip}")
+                            print(f"[Network]      - If ping fails, check IP address or network connection")
+                            print(f"[Network]   3. Check firewall on server allows port {self.relay_server_port}")
+                            print(f"[Network]   4. Verify IP address is correct: {self.relay_server_ip}")
+                            print(f"[Network]   5. If server is on different network, use public IP address")
+                            diagnostics_shown = True
+                        elif retry_count % 10 == 0:
+                            # Show elapsed time every 10 attempts
+                            print(f"[Network] Still connecting... ({elapsed:.1f}s elapsed)")
                         time.sleep(1)
                     continue
                 except Exception as e:
@@ -523,7 +560,12 @@ class NetworkPeer:
                     continue  # Timeout is normal, just continue
                 
                 if not data:
-                    print("[Network] Connection closed by peer")
+                    print("[Network] Connection closed by peer (other side closed connection)")
+                    print("[Network] Possible causes:")
+                    print("[Network]   - Other player closed their game/window")
+                    print("[Network]   - Railway TCP proxy connection limit/timeout")
+                    print("[Network]   - Network interruption")
+                    print("[Network]   - Relay server closed connection")
                     self.disconnect()
                     break
                 

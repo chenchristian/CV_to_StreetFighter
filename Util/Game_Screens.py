@@ -240,14 +240,15 @@ class PlayerSelectionScreen:
             import time
             max_wait = 60  # Wait up to 60 seconds for connection
             wait_count = 0
+            start_time = time.time()
             print("[Network] Waiting for network connection...")
             while not self.game.network_peer.is_connected() and wait_count < max_wait * 10:
                 time.sleep(0.1)
                 wait_count += 1
                 # Print status every 5 seconds
                 if wait_count % 50 == 0:
-                    elapsed = wait_count / 10
-                    print(f"[Network] Still waiting for connection... ({elapsed:.1f}s)")
+                    elapsed = time.time() - start_time
+                    print(f"[Network] Still waiting for connection... ({elapsed:.1f}s elapsed)")
             
             if self.game.network_peer.is_connected():
                 print("[Network] ✓ Connection established, starting game")
