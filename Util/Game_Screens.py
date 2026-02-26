@@ -156,16 +156,58 @@ class PlayerSelectionScreen:
             # For now, use command line args or defaults
             # In a full implementation, you'd have a network setup screen
             import sys
-            if "--host" in sys.argv:
+            
+            # Check for relay mode first
+            relay_mode = "--relay" in sys.argv
+            relay_server_ip = None
+            relay_server_port = None
+            
+            if relay_mode:
+                # Relay mode: both players connect to relay server
+                try:
+                    relay_ip_idx = sys.argv.index("--relay-ip")
+                    relay_server_ip = sys.argv[relay_ip_idx + 1]
+                    
+                    # Validate IP address is not empty
+                    if not relay_server_ip or relay_server_ip.strip() == "":
+                        print("[Network] ERROR: --relay-ip cannot be empty")
+                        print("[Network] Usage: python main.py --relay --relay-ip <SERVER_IP> [--relay-port <PORT>]")
+                        print("[Network] Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
+                        relay_mode = False
+                        relay_server_ip = None
+                except (ValueError, IndexError):
+                    print("[Network] ERROR: --relay-ip required when using --relay mode")
+                    print("[Network] Usage: python main.py --relay --relay-ip <SERVER_IP> [--relay-port <PORT>]")
+                    print("[Network] Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
+                    relay_mode = False
+                    relay_server_ip = None
+                
+                try:
+                    relay_port_idx = sys.argv.index("--relay-port")
+                    relay_server_port = int(sys.argv[relay_port_idx + 1])
+                except (ValueError, IndexError):
+                    relay_server_port = 5555  # Default port
+                
+                self.game.is_host = False  # Not used in relay mode
+                self.game.relay_mode = True  # Set relay mode flag
+                self.game.remote_ip = "127.0.0.1"  # Not used in relay mode
+                print(f"[Network] Relay mode: Connecting to server at {relay_server_ip}:{relay_server_port}")
+            elif "--host" in sys.argv:
                 self.game.is_host = True
                 self.game.remote_ip = "127.0.0.1"
             elif "--client" in sys.argv:
                 self.game.is_host = False
-                # Get IP from args or use default
+                # Get IP from args - required for client mode
                 try:
                     ip_idx = sys.argv.index("--ip")
                     self.game.remote_ip = sys.argv[ip_idx + 1]
                 except (ValueError, IndexError):
+                    # Default to localhost only for local testing
+                    # For network play, user must provide --ip with actual host IP
+                    print("[Network] WARNING: No --ip specified, defaulting to 127.0.0.1 (localhost)")
+                    print("[Network] This only works if host and client are on the same machine.")
+                    print("[Network] For network play, use: python main.py --client --ip <HOST_IP_ADDRESS>")
+                    print("[Network] Example: python main.py --client --ip 192.168.1.100")
                     self.game.remote_ip = "127.0.0.1"
             else:
                 # Default to host if no args
@@ -177,11 +219,21 @@ class PlayerSelectionScreen:
                 self.game.use_keyboard = True
             
             # Initialize network peer
-            self.game.network_peer = NetworkPeer(
-                host=self.game.is_host,
-                remote_ip=self.game.remote_ip,
-                port=self.game.port
-            )
+            if relay_mode:
+                self.game.network_peer = NetworkPeer(
+                    host=False,  # Not used in relay mode
+                    remote_ip="127.0.0.1",  # Not used in relay mode
+                    port=5555,  # Not used in relay mode
+                    relay_mode=True,
+                    relay_server_ip=relay_server_ip,
+                    relay_server_port=relay_server_port
+                )
+            else:
+                self.game.network_peer = NetworkPeer(
+                    host=self.game.is_host,
+                    remote_ip=self.game.remote_ip,
+                    port=self.game.port
+                )
             self.game.network_peer.start()
             
             # Wait for connection to establish

@@ -67,6 +67,7 @@ class InputDevice:
                 "random": self.random_mode,
                 "network": self.network_mode,  # Receive inputs from network
                 "network_sender": self.network_sender_mode,  # Send local inputs to network
+                "relay": self.relay_mode,  # Send local inputs AND receive from network (for relay server)
             }[mode],
         )
         if mode == "joystick":
@@ -324,6 +325,53 @@ class InputDevice:
         
         # Use the input locally
         self.get_press(raw_input)
+
+    def relay_mode(self):
+        """Send local inputs to network AND receive from network (for relay server mode).
+        Always uses local input for this player's character, and sends it to network.
+        Also receives network input (which is used by the other player's InputDevice)."""
+        # Get local input from pose worker or keyboard
+        if self.pose_worker:
+            raw_input = self.pose_worker.get_latest_game_input()
+        else:
+            # Fallback to keyboard if no pose worker
+            keyboard = tuple(key.get_pressed())
+            self.raw_input = [
+                sum(keyboard[key] for key in self.key[0]),
+                sum(keyboard[key] for key in self.key[1]),
+                sum(keyboard[key] for key in self.key[2]),
+                sum(keyboard[key] for key in self.key[3]),
+                sum(keyboard[key] for key in self.key[4]),
+                sum(keyboard[key] for key in self.key[5]),
+                sum(keyboard[key] for key in self.key[6]),
+                sum(keyboard[key] for key in self.key[7]),
+                sum(keyboard[key] for key in self.key[8]),
+                sum(keyboard[key] for key in self.key[9]),
+                sum(keyboard[key] for key in self.key[10]),
+            ]
+            raw_input = [
+                [
+                    self.raw_input[0] + self.raw_input[1] * -1,
+                    self.raw_input[2] + self.raw_input[3] * -1,
+                ],
+                self.raw_input[4],
+                self.raw_input[5],
+                self.raw_input[6],
+                self.raw_input[7],
+                self.raw_input[8],
+                self.raw_input[9],
+                self.raw_input[10],
+            ]
+        
+        # Always send local input to network (relay server will route it to other player)
+        if self.network_peer and self.network_peer.is_connected():
+            self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+        
+        # Always use local input for this player's character
+        self.get_press(raw_input)
+        
+        # Note: The received network input (from other player) is handled by the other player's InputDevice
+        # which is in "relay" mode and uses its own local input
 
     def get_press(self, raw_input):
         self.inter_press = 0

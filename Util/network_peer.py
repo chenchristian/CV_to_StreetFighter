@@ -32,6 +32,8 @@ def test_port_connectivity(host: str, port: int, timeout: float = 2.0) -> Tuple[
             return False, f"Port {port} is blocked by firewall or network unreachable"
         elif result == 113:  # No route to host (Linux)
             return False, f"Port {port} is blocked by firewall or network unreachable"
+        elif result == 35:  # Operation now in progress / Network unreachable (macOS)
+            return False, f"Port {port} - Network unreachable (host may be down or wrong IP)"
         else:
             return False, f"Port {port} test failed with error code {result}"
     except Exception as e:
@@ -47,20 +49,29 @@ class NetworkPeer:
                  host: bool = False,
                  remote_ip: str = "127.0.0.1",
                  port: int = 5555,
-                 timeout: float = 5.0):
+                 timeout: float = 5.0,
+                 relay_mode: bool = False,
+                 relay_server_ip: Optional[str] = None,
+                 relay_server_port: Optional[int] = None):
         """
         Initialize network peer.
         
         Args:
             host: If True, this peer listens for connections. If False, connects to host.
-            remote_ip: IP address of the host (only used if host=False)
-            port: Port number for communication
+            remote_ip: IP address of the host (only used if host=False and relay_mode=False)
+            port: Port number for communication (only used if relay_mode=False)
             timeout: Connection timeout in seconds
+            relay_mode: If True, connect through relay server instead of direct P2P
+            relay_server_ip: IP address of relay server (required if relay_mode=True)
+            relay_server_port: Port of relay server (required if relay_mode=True)
         """
         self.host = host
         self.remote_ip = remote_ip
         self.port = port
         self.timeout = timeout
+        self.relay_mode = relay_mode
+        self.relay_server_ip = relay_server_ip
+        self.relay_server_port = relay_server_port
         
         self.socket: Optional[socket.socket] = None
         self.connected = False
@@ -86,7 +97,9 @@ class NetworkPeer:
         
     def start(self):
         """Start the network peer (connect or listen)."""
-        if self.host:
+        if self.relay_mode:
+            self._start_relay_client()
+        elif self.host:
             self._start_host()
         else:
             self._start_client()
@@ -336,6 +349,148 @@ class NetworkPeer:
                 print(f"[Network] =========================================")
         
         threading.Thread(target=connect_to_host, daemon=True).start()
+    
+    def _start_relay_client(self):
+        """Start as relay client (connect to relay server)."""
+        if not self.relay_server_ip or not self.relay_server_port:
+            print("[Network] ERROR: relay_server_ip and relay_server_port required for relay mode")
+            return
+        
+        def connect_to_relay():
+            max_retries = 120
+            retry_count = 0
+            
+            # Test connectivity first
+            if retry_count == 0:
+                print(f"[Network] Connecting to relay server at {self.relay_server_ip}:{self.relay_server_port}...")
+                # Test if we can reach the server
+                port_test_success, port_test_msg = test_port_connectivity(self.relay_server_ip, self.relay_server_port, timeout=3.0)
+                if not port_test_success:
+                    print(f"[Network] Port test: {port_test_msg}")
+                    print(f"[Network] =========================================")
+                    print(f"[Network] CONNECTION DIAGNOSTICS:")
+                    print(f"[Network] =========================================")
+                    print(f"[Network] Server: {self.relay_server_ip}:{self.relay_server_port}")
+                    print(f"[Network]")
+                    print(f"[Network] CHECKLIST:")
+                    print(f"[Network]   1. Is the relay server actually running?")
+                    print(f"[Network]      → On the server machine, verify:")
+                    print(f"[Network]        python Util/relay_server.py --port {self.relay_server_port}")
+                    print(f"[Network]        Should show: 'Listening on 0.0.0.0:{self.relay_server_port}'")
+                    print(f"[Network]")
+                    print(f"[Network]   2. Is the IP address correct?")
+                    print(f"[Network]      → Check what IP the server displays when it starts")
+                    print(f"[Network]      → Current IP you're using: {self.relay_server_ip}")
+                    print(f"[Network]      → If wrong, use the IP shown by the server")
+                    print(f"[Network]")
+                    print(f"[Network]   3. Are you on the same network?")
+                    print(f"[Network]      → Same Wi-Fi/Ethernet? Use the LOCAL IP shown by server")
+                    print(f"[Network]      → Different networks? Use the PUBLIC IP shown by server")
+                    print(f"[Network]")
+                    print(f"[Network]   4. Test basic connectivity:")
+                    print(f"[Network]      → Run: ping {self.relay_server_ip}")
+                    print(f"[Network]      → If ping fails, server is unreachable")
+                    print(f"[Network]")
+                    print(f"[Network]   5. Check server firewall:")
+                    print(f"[Network]      → Server firewall must allow port {self.relay_server_port}")
+                    print(f"[Network]      → macOS: System Settings > Network > Firewall")
+                    print(f"[Network]      → Linux: sudo ufw allow {self.relay_server_port}/tcp")
+                    print(f"[Network]")
+                    print(f"[Network]   6. If server is on PythonAnywhere/cloud:")
+                    print(f"[Network]      → Free accounts may not allow long-running processes")
+                    print(f"[Network]      → Check server console/logs for errors")
+                    print(f"[Network] =========================================")
+            
+            while not self._stop_event.is_set() and not self.connected and retry_count < max_retries:
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(2.0)
+                    
+                    if retry_count > 0 and retry_count % 10 == 0:
+                        print(f"[Network] Retrying connection to relay server... (attempt {retry_count + 1}/{max_retries})")
+                    
+                    sock.connect((self.relay_server_ip, self.relay_server_port))
+                    sock.settimeout(0.1)
+                    
+                    with self.connection_lock:
+                        self.socket = sock
+                        self.connected = True
+                    print(f"[Network] ✓ Connected to relay server")
+                    
+                    if self.on_connected:
+                        self.on_connected()
+                    
+                    self._start_threads()
+                    print("[Network] Send/receive threads started")
+                    break
+                    
+                except (socket.timeout, ConnectionRefusedError, OSError) as e:
+                    retry_count += 1
+                    try:
+                        sock.close()
+                    except:
+                        pass
+                    
+                    error_msg = str(e)
+                    error_code = getattr(e, 'errno', None)
+                    
+                    # Check for DNS resolution errors
+                    is_dns_error = (error_code == 8 or 
+                                   "nodename nor servname" in error_msg or
+                                   "Name or service not known" in error_msg or
+                                   "getaddrinfo failed" in error_msg)
+                    
+                    # Check for timeout errors
+                    is_timeout = ("timed out" in error_msg or 
+                                 "timeout" in error_msg.lower() or
+                                 isinstance(e, socket.timeout))
+                    
+                    if retry_count < max_retries:
+                        if is_dns_error or is_timeout or retry_count % 10 == 0:
+                            if is_dns_error:
+                                print(f"[Network] ✗ DNS Resolution Error (errno {error_code})")
+                                print(f"[Network] The server address '{self.relay_server_ip}' could not be resolved.")
+                                print(f"[Network] Check:")
+                                print(f"[Network]   - Is the IP address or hostname correct?")
+                                print(f"[Network]   - Is there a typo in --relay-ip?")
+                                print(f"[Network]   - Try using the IP address instead of hostname")
+                                print(f"[Network]   - Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
+                            elif is_timeout:
+                                print(f"[Network] ✗ Connection Timeout")
+                                print(f"[Network] Cannot reach relay server at {self.relay_server_ip}:{self.relay_server_port}")
+                                print(f"[Network] Troubleshooting:")
+                                print(f"[Network]   1. Verify relay server is running:")
+                                print(f"[Network]      - On server, run: python Util/relay_server.py --port {self.relay_server_port}")
+                                print(f"[Network]      - Server should show: 'Listening on 0.0.0.0:{self.relay_server_port}'")
+                                print(f"[Network]   2. Test network connectivity:")
+                                print(f"[Network]      - Try: ping {self.relay_server_ip}")
+                                print(f"[Network]      - If ping fails, check IP address or network connection")
+                                print(f"[Network]   3. Check firewall on server allows port {self.relay_server_port}")
+                                print(f"[Network]   4. Verify IP address is correct: {self.relay_server_ip}")
+                                print(f"[Network]   5. If server is on different network, use public IP address")
+                            else:
+                                print(f"[Network] Connection error: {e}")
+                                print(f"[Network] Make sure relay server is running at {self.relay_server_ip}:{self.relay_server_port}")
+                        time.sleep(1)
+                    continue
+                except Exception as e:
+                    retry_count += 1
+                    try:
+                        sock.close()
+                    except:
+                        pass
+                    if retry_count < max_retries and retry_count % 10 == 0:
+                        print(f"[Network] Connection error: {e}")
+                    if retry_count < max_retries:
+                        time.sleep(1)
+                    continue
+            
+            if not self.connected and retry_count >= max_retries:
+                print(f"[Network] ✗ Failed to connect to relay server after {max_retries} attempts")
+                print(f"[Network] Make sure relay server is running:")
+                print(f"[Network]   python Util/relay_server.py --host {self.relay_server_ip} --port {self.relay_server_port}")
+        
+        threading.Thread(target=connect_to_relay, daemon=True).start()
     
     def _start_threads(self):
         """Start receive and send threads."""

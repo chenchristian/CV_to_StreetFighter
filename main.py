@@ -120,6 +120,7 @@ class GameObject:
         self.num_players = None  # Will be set by PlayerSelectionScreen (1 or 2)
         self.network_mode = False
         self.is_host = False
+        self.relay_mode = False  # If True, using relay server instead of direct P2P
         self.network_peer = None
         self.remote_ip = "127.0.0.1"
         self.port = 5555
@@ -209,7 +210,34 @@ class GameObject:
         elif self.num_players == 2:
             # Two players: network mode
             if self.network_mode:
-                if self.is_host:
+                if self.relay_mode:
+                    # Relay mode: both players work the same way
+                    # Player 1 uses local input and sends it, Player 2 receives from network
+                    # Relay server routes messages between the two players
+                    # This is the same as host mode, but both players connect to relay server
+                    if self.use_keyboard:
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "keyboard",
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                    elif self.pose_worker:
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "external",
+                                      pose_worker=self.pose_worker,
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                    else:
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "keyboard",
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                elif self.is_host:
                     # Host: Player 1 uses local input, Player 2 receives from network
                     if self.use_keyboard:
                         # Use keyboard for Player 1
