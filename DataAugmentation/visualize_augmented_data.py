@@ -108,7 +108,7 @@ def create_video(csv_path, output_video, W=640, H=480, fps=30):
 if __name__ == "__main__":
     from pathlib import Path
 
-csv_path = "Data/Train_Test_Data/Seperated_By_Person/Clips_Split_80_20/Test/lead_hook_Christian_32.csv"
+csv_path = "Data/Phase2/Christian/pose_data_labeled_2.csv"
 name = Path(csv_path).parent.name
 
 # 1. Define the separate parts of your output path
