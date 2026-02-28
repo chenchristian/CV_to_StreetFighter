@@ -223,7 +223,7 @@ def play_video_with_prediction(model, label_encoder, csv_path, video_path, windo
 if __name__ == "__main__":
     # 1. Paths
     train_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Train_clips"
-    test_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Test_clips" # Ensure this path exists
+    test_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Test_clips" 
     model_output = "Models/LSTM_v1/phase1LSTM_original.pth"
     encoder_path = "Models/LSTM_v1/label_encoder.pkl"
 
