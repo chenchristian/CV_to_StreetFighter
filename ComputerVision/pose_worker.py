@@ -175,12 +175,13 @@ class PoseWorker:
                         movement_info["center_x"] = None
 
                 # --- Live prediction ---
-                pred_label, confidence = None, None
+                pred_label, probabilities = None, None
                 if self.live_predictor is not None:
-                    pred_label, confidence = self.live_predictor.predict(vector)
-                    if pred_label is not None:
-                        cv.putText(frame, f"{pred_label} ({confidence:.2f})", (30,50),
-                                   cv.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+                    res = self.live_predictor.predict(vector)
+                    if res[0] is not None:
+                        pred_label, probabilities = res 
+                    else:
+                        pred_label, probabilities = "WARMING UP", None
                 
                 
                 # --- Prediction into Game inputs
@@ -200,7 +201,7 @@ class PoseWorker:
                     "game_input": game_input,
                     "timestamp": timestamp,
                     "prediction": pred_label,
-                    "confidence": confidence
+                    "probabilities": probabilities
                 }
 
                 # thread-safe store

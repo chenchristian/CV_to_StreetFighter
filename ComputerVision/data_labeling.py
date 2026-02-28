@@ -219,17 +219,17 @@ def verify(csv_path, video_path):
     
 if __name__ == "__main__":
     # Paths relative to ComputerVision folder
-    csv_file = "pose_data.csv"
-    video_file = "pose_recording.mp4"
+    csv_file = "Data/Phase2/Agni/pose_data_labeled_1.csv"
+    video_file = "Visualized_Data/Agni_output_pose_video_1.mp4"
 
     MODE = "label"   # "label" or "verify"
-    name = "Christian"
+    name = "Agni2"
     if MODE == "label":
         label(csv_file, video_file, name)
     elif MODE == "verify":
         # Compute verification file path in Data/Phase2/Christian
         parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        labeled_file = "pose_data_labeled_2.csv"
+        labeled_file = "pose_data_labeled_1.csv"
 
         #add your own name
         csv_file_verify = os.path.join(parent_dir, "Data", "Phase2", name, labeled_file)

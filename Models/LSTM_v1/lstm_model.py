@@ -9,6 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import LabelEncoder
 import pickle
 import cv2 as cv
+from sklearn.metrics import f1_score, classification_report, confusion_matrix
 
 # -------------------------
 # Dataset
@@ -92,11 +93,37 @@ class LSTMWindowClassifier(nn.Module):
         out = self.dropout(out)
         out = self.fc2(out)
         return out
+    
+def predict(model, test_folder, label_encoder, window_size=5, batch_size=16):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+        model.eval()
+
+        # Load the test data using your existing Dataset class
+        test_dataset = PoseWindowDataset(test_folder, window_size=window_size, label_encoder=label_encoder)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+        y_true = []
+        y_pred = []
+
+        print(f"Evaluating on {len(test_dataset)} test windows...")
+
+        with torch.no_grad():
+            for seq, label in test_loader:
+                seq = seq.to(device)
+                
+                outputs = model(seq)
+                preds = torch.argmax(outputs, dim=1)
+                
+                y_true.extend(label.numpy())
+                y_pred.extend(preds.cpu().numpy())
+
+        return y_true, y_pred
 
 # -------------------------
 # Training
 # -------------------------
-def train_model(train_folder, window_size=5, stride=1, batch_size=16, epochs=10, lr=1e-3, model_path="lstm_pose_model.pth", encoder_path="label_encoder.pkl"):
+def train_model(train_folder, window_size=5, stride=1, batch_size=16, epochs=10, lr=1e-3, model_path="Models/LSTM_v1/lstm_pose_model.pth", encoder_path="label_encoder.pkl"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -194,14 +221,22 @@ def play_video_with_prediction(model, label_encoder, csv_path, video_path, windo
 # Example usage
 # -------------------------
 if __name__ == "__main__":
-    train_folder = "DataAugmentation/augmented_data"
-    model, label_encoder = train_model(train_folder, epochs=10)
+    # 1. Paths
+    train_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Train_clips"
+    test_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Test_clips" # Ensure this path exists
+    model_output = "Models/LSTM_v1/phase1LSTM_original.pth"
+    encoder_path = "Models/LSTM_v1/label_encoder.pkl"
 
-    test_csv = "pose_data.csv"
-    videopath = "pose_recording.mp4"
-    preds, trues = play_video_with_prediction(model, label_encoder, test_csv, video_path=videopath)
+    # 2. Train the model
+    model, label_encoder = train_model(train_folder, epochs=10, model_path=model_output, encoder_path=encoder_path)
 
-    from sklearn.metrics import confusion_matrix, classification_report
+    # 3. RUN EVALUATION (This gives you the F1 Score)
+    # This uses the 'predict' function you defined outside the class
+    trues, preds = predict(model, test_folder, label_encoder)
+
+    # 4. Print Metrics
+    print("\n--- TEST SET PERFORMANCE ---")
     print(confusion_matrix(trues, preds))
-    print(classification_report(trues, preds))
+    print(classification_report(trues, preds, target_names=label_encoder.classes_))
+    
     

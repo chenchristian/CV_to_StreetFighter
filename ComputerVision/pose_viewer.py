@@ -1,6 +1,8 @@
-# pose_viewer.py
 import cv2 as cv
 import numpy as np
+import pickle
+import os
+from collections import deque
 from .pose_worker import PoseWorker
 
 class PoseViewer:
@@ -10,6 +12,35 @@ class PoseViewer:
         self.last_frame = None
         self.last_landmarks = []
         self.movement_edge_threshold = 0.15
+        
+        # --- PROBABILITY HISTORY GRAPH ---
+        # Stores the last 90 frames of probabilities
+        self.history_length = 90
+        self.prob_history = deque(maxlen=self.history_length)
+        
+        # --- LOAD ENCODER ---
+        self.encoder_path = "Models/LSTM_v1/label_encoder.pkl"
+        if os.path.exists(self.encoder_path):
+            with open(self.encoder_path, "rb") as f:
+                label_encoder = pickle.load(f)
+            self.labels = list(label_encoder.classes_)
+        else:
+            self.labels = ["Unknown"]
+            
+        self.num_classes = len(self.labels)
+        self.label_colors = self._generate_colors(self.num_classes)
+
+    def _generate_colors(self, n):
+        colors = {}
+        for i, label in enumerate(self.labels):
+            hue = int(180 * i / n) 
+            color_bgr = cv.cvtColor(np.uint8([[[hue, 200, 255]]]), cv.COLOR_HSV2BGR)[0][0]
+            colors[label] = tuple(int(c) for c in color_bgr)
+        return colors
+
+    def _draw_text(self, img, text, pos, font_scale=0.4, thickness=1):
+        cv.putText(img, text, pos, cv.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness + 2, cv.LINE_AA)
+        cv.putText(img, text, pos, cv.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness, cv.LINE_AA)
 
     def _ensure_window(self):
         if not self._window_created:
@@ -20,178 +51,139 @@ class PoseViewer:
         self._ensure_window()
 
         snapshot = self.shared_state.get_latest_snapshot()
-        if snapshot:
-            self.last_frame = snapshot["frame_rgb"].copy()
-            self.last_landmarks = snapshot["landmarks"]
-            movement_info = snapshot["movement_info"]
-            pred_label = snapshot["prediction"]
-            confidence = snapshot["confidence"]
-        else:
-            self.last_frame = None
-            self.last_landmarks = []
-            movement_info = {"direction": "STATIONARY", "x_diff": 0.0}
-            pred_label = None
-            confidence = None
-
-        if self.last_frame is None:
+        
+        # --- THE FIX: Keep OpenCV alive while waiting for data ---
+        if not snapshot:
             img = np.zeros((480, 640, 3), dtype=np.uint8)
-        else:
-            img = cv.cvtColor(self.last_frame, cv.COLOR_RGB2BGR)
+            self._draw_text(img, "WAITING FOR CAMERA OR MODEL...", (120, 240), font_scale=0.7, thickness=2)
+            cv.imshow("Pose Debug Window", img)
+            cv.waitKey(1)
+            return
+        # ---------------------------------------------------------
 
+        # 1. Extract updated data from snapshot
+        self.last_frame = snapshot["frame_rgb"].copy()
+        self.last_landmarks = snapshot["landmarks"]
+        movement_info = snapshot["movement_info"]
+        pred_label = snapshot.get("prediction", "None")      
+        probabilities = snapshot.get("probabilities", None) 
+
+        img = cv.cvtColor(self.last_frame, cv.COLOR_RGB2BGR)
         h, w = img.shape[:2]
 
-        remove_indices = [1,3,4,6,17,18,19,20,21,22,31,32]
-        for i, (x, y) in enumerate(self.last_landmarks):
-            #print(len(self.last_landmarks)) make sure its 33
-            if i not in remove_indices:
-                cx, cy = int(x * w), int(y * h)
-                cv.circle(img, (cx, cy), 4, (0, 255, 0), -1)
-
+        # Draw Skeleton (Standard Mediapipe connections)
         skeleton_connections = [
-            # Arms
-            (11, 13),  # Left Shoulder → Left Elbow
-            (13, 15),  # Left Elbow → Left Wrist
-            (12, 14),  # Right Shoulder → Right Elbow
-            (14, 16),  # Right Elbow → Right Wrist
-
-            # Torso
-            (11, 12),  # Left Shoulder → Right Shoulder
-            (11, 23),  # Left Shoulder → Left Hip
-            (12, 24),  # Right Shoulder → Right Hip
-            (23, 24),  # Left Hip → Right Hip
-
-            # Legs
-            (23, 25),  # Left Hip → Left Knee
-            (25, 27),  # Left Knee → Left Ankle
-            (27, 29),  # Left Ankle → Left Heel
-            #(29, 31),  # Left Heel → Left Foot Index
-
-            (24, 26),  # Right Hip → Right Knee
-            (26, 28),  # Right Knee → Right Ankle
-            (28, 30),  # Right Ankle → Right Heel
-            #(30, 32),  # Right Heel → Right Foot Index
+            (11, 13), (13, 15), (12, 14), (14, 16), (11, 12), 
+            (11, 23), (12, 24), (23, 24), (23, 25), (25, 27), 
+            (27, 29), (24, 26), (26, 28), (28, 30)
         ]
-
         for start, end in skeleton_connections:
             if start < len(self.last_landmarks) and end < len(self.last_landmarks):
-                x1, y1 = self.last_landmarks[start]
-                x2, y2 = self.last_landmarks[end]
+                p1, p2 = self.last_landmarks[start], self.last_landmarks[end]
+                cv.line(img, (int(p1[0]*w), int(p1[1]*h)), (int(p2[0]*w), int(p2[1]*h)), (255, 0, 0), 2)
 
-                cv.line(
-                    img,
-                    (int(x1 * w), int(y1 * h)),
-                    (int(x2 * w), int(y2 * h)),
-                    (255, 0, 0),
-                    2
-                )
+        # 2. UPDATE HISTORY & DRAW HISTOGRAM
+        if probabilities is not None:
+            # Add to history for the scrolling chart
+            self.prob_history.append(probabilities)
 
-        if pred_label is not None and confidence is not None:
-            # Get prediction probabilities for all classes
-            labels = ["punch", "kick", "idle"]
-            # Define unique colors for each action: punch=red, kick=blue, idle=green
-            label_colors = {
-                "punch": (0, 0, 255),    # Red
-                "kick": (255, 0, 0),     # Blue
-                "idle": (0, 180, 0)      # Green
-            }
+            # Draw Vertical Bar Chart (Left Side)
+            bar_x, bar_y = 10, 20
+            bar_w, bar_h, spacing = 180, 18, 8
             
-            # Draw bars for each action
-            bar_x = 10
-            bar_y_start = 10
-            bar_width = 200
-            bar_height = 25
-            bar_spacing = 35
+            # Desired order
+            custom_order = [
+                "idle",  
+                "jab", 
+                "cross", 
+                "lead_hook", 
+                "rear_hook", 
+                "uppercut", 
+                "jumping_cross",
+                "rear_low_kick", 
+                "side_kick", 
+                "spinning_back_high_kick", 
+                "crouching_low_sweep",
+                "grab", 
+                "hadouken", 
+                "shoryuken"
+            ]
             
-            for i, label in enumerate(labels):
-                y_pos = bar_y_start + i * bar_spacing
-                
-                # Background bar
-                cv.rectangle(img, (bar_x, y_pos), (bar_x + bar_width, y_pos + bar_height), 
-                           (50, 50, 50), -1)
-                
-                # Confidence bar (assuming confidence is a list/array of probabilities)
-                if isinstance(confidence, (list, np.ndarray)) and len(confidence) == 3:
-                    conf_value = confidence[i]
-                else:
-                    # If single value, only show for predicted label
-                    conf_value = confidence if label == pred_label else 0.0
-                
-                fill_width = int(bar_width * conf_value)
-                color = label_colors[label]
-                cv.rectangle(img, (bar_x, y_pos), (bar_x + fill_width, y_pos + bar_height), 
-                           color, -1)
-                
-                # Label and percentage - scale text to fit bar
-                text = f"{label}: {conf_value:.2%}".upper()
-                font_scale = 0.6
-                thickness = 2
-                text_size = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-                
-                # Center text vertically in bar
-                text_x = bar_x + 5
-                text_y = y_pos + (bar_height + text_size[1]) // 2
-                
-                cv.putText(img, text, (text_x, text_y),
-                         cv.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
-
-        # overlay movement info with arrows
-        direction_text = movement_info['direction']
+            # --- THE FIX: Case-insensitive matching ---
+            # Create a dictionary mapping the lowercase version to the EXACT trained string
+            actual_labels_map = {lbl.lower().strip(): lbl for lbl in self.labels}
+            
+            display_labels = []
+            for custom_lbl in custom_order:
+                clean_custom = custom_lbl.lower().strip()
+                if clean_custom in actual_labels_map:
+                    # Append the original exact string that the model expects
+                    display_labels.append(actual_labels_map[clean_custom])
+            
+            # Add any remaining labels to the bottom automatically (just in case)
+            display_labels += [lbl for lbl in self.labels if lbl not in display_labels]
         
-        # Draw arrow for movement direction at bottom corners
-        arrow_y = h - 50  # 50 pixels from bottom
-        arrow_length = 100
-        
-        if "MOVING RIGHT" in direction_text:
-            # Bottom right corner
-            arrow_end_x = w - 50  # 50 pixels from right edge
-            arrow_start_x = arrow_end_x - arrow_length
-            cv.arrowedLine(img, (arrow_start_x, arrow_y), (arrow_end_x, arrow_y), 
-                          (255, 255, 255), 3, tipLength=0.3)
-        elif "MOVING LEFT" in direction_text:
-            # Bottom left corner
-            arrow_start_x = 50  # 50 pixels from left edge
-            arrow_end_x = arrow_start_x + arrow_length
-            cv.arrowedLine(img, (arrow_end_x, arrow_y), (arrow_start_x, arrow_y), 
-                          (255, 255, 255), 3, tipLength=0.3)
-        
-        # cv.putText(img, f"Direction: {movement_info['direction']}", (10, 30),
-        #            cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-        # Draw edge indicator zones
-        center_x = movement_info.get("center_x")
-        if center_x is not None:
-            zone_width = int(0.2 * w)  # 20% of screen width
+            # Now loop through the reordered list
+            for i, label in enumerate(display_labels):
+                # We need to find the ORIGINAL index to grab the correct probability
+                orig_index = self.labels.index(label)
+                prob = probabilities[orig_index]
+                
+                y_pos = bar_y + i * (bar_h + spacing)
+                
+                # Draw Background Bar
+                cv.rectangle(img, (bar_x, y_pos), (bar_x + bar_w, y_pos + bar_h), (40, 40, 40), -1)
+                
+                # Draw Filled Probability Bar
+                fill_w = int(bar_w * prob)
+                cv.rectangle(img, (bar_x, y_pos), (bar_x + fill_w, y_pos + bar_h), self.label_colors[label], -1)
+                
+                # Highlight winning class
+                if label == pred_label:
+                    cv.rectangle(img, (bar_x, y_pos), (bar_x + bar_w, y_pos + bar_h), (255, 255, 255), 1)
+
+                # Draw Text
+                self._draw_text(img, f"{label.upper()}: {prob:.0%}", (bar_x + 5, y_pos + 14))
+
+        # # 3. DRAW ROLLING TIME-SERIES CHART (Top Right)
+        # if len(self.prob_history) > 1:
+        #     chart_w, chart_h = 220, 120
+        #     chart_x, chart_y = w - chart_w - 20, 20
             
-            # Left edge zone 15%
-            if center_x <= self.movement_edge_threshold:
-                # Highlight left edge zone with semi-transparent green overlay
-                overlay = img.copy()
-                cv.rectangle(overlay, (0, 0), (zone_width, h), (0, 255, 0), -1)
-                cv.addWeighted(overlay, 0.3, img, 0.7, 0, img)
-            else:
-                # Dim left edge zone when not active
-                overlay = img.copy()
-                cv.rectangle(overlay, (0, 0), (zone_width, h), (50, 50, 50), -1)
-                cv.addWeighted(overlay, 0.15, img, 0.85, 0, img)
-            
-            # Right edge zone 85%
-            if center_x >= 1 - self.movement_edge_threshold: 
-                # Highlight right edge zone with semi-transparent green overlay
-                overlay = img.copy()
-                cv.rectangle(overlay, (w - zone_width, 0), (w, h), (0, 255, 0), -1)
-                cv.addWeighted(overlay, 0.3, img, 0.7, 0, img)
-            else:
-                # Dim right edge zone when not active
-                overlay = img.copy()
-                cv.rectangle(overlay, (w - zone_width, 0), (w, h), (50, 50, 50), -1)
-                cv.addWeighted(overlay, 0.15, img, 0.85, 0, img)
+        #     # Background box
+        #     sub_img = img[chart_y:chart_y+chart_h, chart_x:chart_x+chart_w]
+        #     black_rect = np.zeros_like(sub_img)
+        #     res = cv.addWeighted(sub_img, 0.4, black_rect, 0.6, 0)
+        #     img[chart_y:chart_y+chart_h, chart_x:chart_x+chart_w] = res
+        #     cv.rectangle(img, (chart_x, chart_y), (chart_x + chart_w, chart_y + chart_h), (200, 200, 200), 1)
+
+        #     step_x = chart_w / (self.history_length - 1)
+        #     for c_idx, label in enumerate(self.labels):
+        #         points = []
+        #         for p_idx, prob_vec in enumerate(self.prob_history):
+        #             # Calculate horizontal position based on current history size
+        #             x = int(chart_x + p_idx * step_x)
+        #             # Y is inverted (0 is top, chart_h is bottom)
+        #             y = int(chart_y + chart_h - (prob_vec[c_idx] * chart_h))
+        #             points.append((x, y))
+                
+        #         # Draw the line for this specific class
+        #         for i in range(len(points) - 1):
+        #             # Only draw lines with significant probability to reduce visual noise
+        #             if self.prob_history[i][c_idx] > 0.05 or self.prob_history[i+1][c_idx] > 0.05:
+        #                 cv.line(img, points[i], points[i+1], self.label_colors[label], 1, cv.LINE_AA)
+
+        # 4. DRAW ARROWS & EDGE ZONES
+        direction = movement_info.get('direction', "STATIONARY")
+        if "RIGHT" in direction:
+            cv.arrowedLine(img, (w-150, h-50), (w-50, h-50), (255, 255, 255), 3)
+        elif "LEFT" in direction:
+            cv.arrowedLine(img, (150, h-50), (50, h-50), (255, 255, 255), 3)
 
         cv.imshow("Pose Debug Window", img)
         if cv.waitKey(1) & 0xFF == 27:
             self.close()
 
     def close(self):
-        try:
-            cv.destroyWindow("Pose Debug Window")
-        except Exception:
-            pass
+        cv.destroyAllWindows()
