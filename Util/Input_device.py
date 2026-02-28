@@ -38,7 +38,7 @@ combo_trail_key_mapping = {
 # Hadouken → t (23)
 # Shoryuken → y (28)
 # Shinku Hadouken → u (24)
-# Jab String → i (12)
+# Grab → i (12)
 # Target Combo → o (18)
 # Front Fierce → p (19)
 # Tatsumaki → g (10)

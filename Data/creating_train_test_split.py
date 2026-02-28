@@ -142,7 +142,7 @@ if __name__ == "__main__":
     BASE_DIR = "Data/Phase2"
     
     # Put the exact names of the folders you want to skip here
-    exclude_folders = ["Train_clips","Test_clips","instance_clips","Alfred", "Kevin", "Parnika"] 
+    exclude_folders = ["Train_Test_Data","instance_clips","Alfred", "Kevin", "Parnika", "Agni"] 
     
     raw_files = []
     
@@ -172,8 +172,8 @@ if __name__ == "__main__":
         exit()
     # 2. Define your directory structure
     CLIPS_DIR = "Data/Phase2/instance_clips"
-    TRAIN_DIR = "Data/Phase2/Train_clips"
-    TEST_DIR  = "Data/Phase2/Test_clips"
+    TRAIN_DIR = "Data/Train_Test_Data/Seperated_By_Person/Clips_Split_80_20/Train"
+    TEST_DIR  = "Data/Train_Test_Data/Seperated_By_Person/Clips_Split_80_20/Test"
     
     # 3. Run Step 1: Extract the padded clips
     print("=== STEP 1: EXTRACTING CLIPS ===")

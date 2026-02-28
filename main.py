@@ -31,7 +31,9 @@ from Util.Input_device import InputDevice, dummy_input
 from Util.Interface_objects import Message
 
 #global variable to activate\ deactivate the computer vision mode
-COMPUTER_VISION = False
+COMPUTER_VISION = True
+MODEL_PATH = "Models/LSTM_v1/phase1LSTM_original.pth"
+lABEL_ENCODER = "Models/LSTM_v1/label_encoder.pkl"
 
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -352,11 +354,11 @@ import torch
 import pickle
 from ComputerVision.pose_worker import PoseWorker
 from ComputerVision.pose_viewer import PoseViewer
-from Models.lstm_live_predictions import LivePosePredictor
-from Models.lstm_model import LSTMWindowClassifier
+from Models.LSTM_v1.lstm_live_predictions import LivePosePredictor
+from Models.LSTM_v1.lstm_model import LSTMWindowClassifier
 
 # Load model
-with open("label_encoder.pkl", "rb") as f:
+with open(lABEL_ENCODER, "rb") as f:
     label_encoder = pickle.load(f)
 
 model = LSTMWindowClassifier(
@@ -368,11 +370,8 @@ model = LSTMWindowClassifier(
 )
 if(COMPUTER_VISION):
 # Load the trained weights
-    model.load_state_dict(torch.load("lstm_pose_model.pth", map_location="cpu"))  # or "cuda"
+    model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))  # or "cuda"
     model.eval()
-    # Load label encoder
-    with open("label_encoder.pkl", "rb") as f:
-        label_encoder = pickle.load(f)
 
     # Create predictor
     predictor = LivePosePredictor(model, label_encoder, sequence_length=5)

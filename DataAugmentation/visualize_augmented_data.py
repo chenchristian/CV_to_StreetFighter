@@ -2,6 +2,7 @@ import os
 import cv2
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
 # MediaPipe connections
 mp_connections = [
@@ -105,7 +106,29 @@ def create_video(csv_path, output_video, W=640, H=480, fps=30):
 
 
 if __name__ == "__main__":
-    csv_path = "Data/Phase2/Test_clips/jab_Christian_31.csv"
-    output_video = "output_pose_video.mp4"
+    from pathlib import Path
 
-    create_video(csv_path, output_video, W=640, H=480, fps=30)
+csv_path = "Data/Train_Test_Data/Seperated_By_Person/Clips_Split_80_20/Test/lead_hook_Christian_32.csv"
+name = Path(csv_path).parent.name
+
+# 1. Define the separate parts of your output path
+out_folder = "Visualized_Data"
+base_name = f"{name}_output_pose_video"
+ext = ".mp4"
+
+# 2. Create the initial Path object
+output_video_path = Path(f"{out_folder}/{base_name}{ext}")
+
+# 3. If the file exists, start a counter and update the name until it's unique
+counter = 1
+while output_video_path.exists():
+    output_video_path = Path(f"{out_folder}/{base_name}_{counter}{ext}")
+    counter += 1
+
+# 4. Convert the final unique Path back to a regular string 
+# (Most video libraries like OpenCV prefer standard strings over Path objects)
+output_video = str(output_video_path)
+
+print(output_video)
+
+create_video(csv_path, output_video, W=640, H=480, fps=30)
