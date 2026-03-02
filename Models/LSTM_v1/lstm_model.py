@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import LabelEncoder
+import seaborn as sns
+import matplotlib.pyplot as plt
 import pickle
 import cv2 as cv
 from sklearn.metrics import f1_score, classification_report, confusion_matrix
@@ -223,20 +225,87 @@ def play_video_with_prediction(model, label_encoder, csv_path, video_path, windo
 if __name__ == "__main__":
     # 1. Paths
     train_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Train_clips"
-    test_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Test_clips" 
+    test_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Test_clips"
     model_output = "Models/LSTM_v1/phase1LSTM_original.pth"
     encoder_path = "Models/LSTM_v1/label_encoder.pkl"
 
-    # 2. Train the model
-    model, label_encoder = train_model(train_folder, epochs=10, model_path=model_output, encoder_path=encoder_path)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 3. RUN EVALUATION (This gives you the F1 Score)
-    # This uses the 'predict' function you defined outside the class
+    mode = "test"
+
+    if mode == "train":
+        model, label_encoder = train_model(
+            train_folder,
+            epochs=10,
+            model_path=model_output,
+            encoder_path=encoder_path
+        )
+
+    else:
+        # -------------------------
+        # Load label encoder
+        # -------------------------
+        with open(encoder_path, "rb") as f:
+            label_encoder = pickle.load(f)
+
+        num_classes = len(label_encoder.classes_)
+
+        # -------------------------
+        # Recreate model architecture
+        # -------------------------
+        model = LSTMWindowClassifier(
+            input_size=84,
+            hidden_size=128,
+            num_layers=2,
+            num_classes=num_classes,
+            dropout=0.3
+        ).to(device)
+
+        # -------------------------
+        # Load trained weights
+        # -------------------------
+        model.load_state_dict(torch.load(model_output, map_location=device))
+        model.eval()
+
+    # 3. Evaluate
     trues, preds = predict(model, test_folder, label_encoder)
 
-    # 4. Print Metrics
+    # 4. Metrics
     print("\n--- TEST SET PERFORMANCE ---")
-    print(confusion_matrix(trues, preds))
-    print(classification_report(trues, preds, target_names=label_encoder.classes_))
-    
-    
+
+    cm = confusion_matrix(trues, preds)
+    print(cm)
+
+    report_dict = classification_report(
+        trues,
+        preds,
+        target_names=label_encoder.classes_,
+        output_dict=True
+    )
+
+    report_df = pd.DataFrame(report_dict).transpose()
+    print(report_df)
+
+        # Remove accuracy row (since it's scalar)
+    metrics_df = report_df.drop(columns=["support"])  # remove "accuracy" and "support"
+
+    plt.figure(figsize=(8, 6))
+
+    ax = sns.heatmap(
+        metrics_df,
+        annot=True,
+        fmt=".3f",
+        cmap="Greens"
+    )
+
+    # Find where summary rows start
+    summary_rows = ["accuracy", "macro avg", "weighted avg"]
+    divider_index = metrics_df.index.get_loc("accuracy")
+
+    # Draw divider line
+    ax.hlines(divider_index, *ax.get_xlim(), colors="black", linewidth=2)
+
+    plt.title("Classification Report")
+    plt.tight_layout()
+    plt.savefig("classification_report.png", dpi=300)
+    plt.show()
