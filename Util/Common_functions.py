@@ -98,7 +98,12 @@ def RoundSign(n):
 
 
 def weighted_choice(options):
-    values = list(options.keys())
+    """
+    Make a weighted random choice. For network play, keys are sorted to ensure deterministic order.
+    """
+    # Sort keys to ensure deterministic iteration order (prevents desync)
+    # Python 3.7+ maintains insertion order, but sorting ensures consistency across different Python versions
+    values = sorted(list(options.keys()))
     probabilities = [options[key]["chance"] for key in values]
     return random.choices(values, weights=probabilities, k=1)[0]
 
@@ -236,7 +241,8 @@ def get_command(self, state: list=[]):
         + ["defeated" if self.gauges.get("health", 1) <= 0 else "alive"]
         + state
     )
-    for move in self.command_index_timer:
+    # Sort moves to ensure deterministic iteration order (prevents desync in network play)
+    for move in sorted(self.command_index_timer.keys()):
         for index in range(len(self.command_index_timer[move])):
             input_gate = self.dict["states"][move]["command"][index][self.command_index_timer[move][index][0]].split(",")
             intersection = 0
@@ -261,7 +267,9 @@ def get_command(self, state: list=[]):
                     )
 
 def get_state(self, buffer: dict={}, force: bool=False):
-    for move in {m: buffer[m] for m in self.dict["states"] if m in buffer}:
+    # Sort moves to ensure deterministic iteration order (prevents desync in network play)
+    buffer_moves = {m: buffer[m] for m in self.dict["states"] if m in buffer}
+    for move in sorted(buffer_moves.keys()):
         if force or (
             self.fet in self.dict["states"][move].get("state", "grounded")
             and (
@@ -349,7 +357,8 @@ def next_frame(self, state):
         False,
         [None],
     )
-    for value in function_dict:
+    # Sort function_dict keys to ensure deterministic iteration order (prevents desync)
+    for value in sorted(function_dict.keys()):
         if state.get(value, None) != None:
             function_dict[value](self, state[value], False)
     self.frame[0] -= 1

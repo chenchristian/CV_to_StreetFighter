@@ -309,14 +309,16 @@ def calculate_boxes_collitions(game, *args):
             self.other_main_object = get_object_per_team(game.object_list, self.team)
 
         for other in self.take_coll_grab:
-            for value in function_dict:
+            # Sort function_dict keys to ensure deterministic iteration order (prevents desync)
+            for value in sorted(function_dict.keys()):
                 if self.boxes["takebox"].get(value, None) != None:
                     function_dict[value](self, self.boxes["takebox"][value], other)
         self.take_coll_grab = []
 
     for self in active_objects:
         for other in self.trigger_coll_hurt:
-            for value in function_dict:
+            # Sort function_dict keys to ensure deterministic iteration order (prevents desync)
+            for value in sorted(function_dict.keys()):
                 if self.boxes["triggerbox"].get(value, None) != None:
                     function_dict[value](self, self.boxes["triggerbox"][value], other)
         self.trigger_coll_hurt = []
@@ -424,7 +426,8 @@ def calculate_boxes_collitions(game, *args):
                 )
             )
 
-            for value in function_dict:
+            # Sort function_dict keys to ensure deterministic iteration order (prevents desync)
+            for value in sorted(function_dict.keys()):
                 if hitbox.get(value, None) != None:
                     function_dict[value](self, hitbox[value], other)
 

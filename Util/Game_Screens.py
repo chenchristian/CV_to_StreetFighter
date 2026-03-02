@@ -292,12 +292,21 @@ class PlayerSelectionScreen:
                     if self.game.network_peer.both_players_ready:
                         print("[Network] ✓ Both players ready! Starting game...")
                         # Set deterministic random seed for synchronized gameplay
-                        # Use player_id to ensure both players use the same seed
+                        # CRITICAL: Must set seed BEFORE any random operations
                         import random
                         sync_seed = 42  # Fixed seed for deterministic behavior
                         random.seed(sync_seed)
                         self.game.network_seed = sync_seed
+                        # Also seed numpy random if used
+                        try:
+                            import numpy as np
+                            np.random.seed(sync_seed)
+                        except:
+                            pass
                         print(f"[Network] Set random seed to {sync_seed} for deterministic gameplay")
+                        # Reset frame counter to ensure both players start at frame 0
+                        self.game.emu_frame = 0
+                        print(f"[Network] Reset frame counter to 0 for synchronization")
                     else:
                         print("[Network] ⚠️  WARNING: Both players not ready, but proceeding anyway")
             else:

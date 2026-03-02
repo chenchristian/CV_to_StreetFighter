@@ -186,12 +186,19 @@ def draw_rect(
     glEnable(GL_LIGHTING)
 
 
-def draw_teapod(pos=(0, 0, 0), scale=(0, 0, 0), color=(0, 0, 0, 0)):
+def draw_teapod(pos=(0, 0, 0), scale=(0, 0, 0), color=(0, 0, 0, 0), frame=0):
+    """
+    Draw a teapot. For network play, use frame counter instead of time for deterministic rotation.
+    Args:
+        frame: Current frame number (for deterministic rotation in network mode)
+    """
     glDisable(GL_TEXTURE_2D)
     glPushMatrix()
     glTranslatef(pos[0], pos[1], pos[2])
     glScalef(scale[0], scale[1], scale[2])
-    glRotatef(pygame.time.get_ticks() * 0.05, 0, 1, 0)
+    # Use frame counter instead of time for deterministic behavior in network mode
+    # pygame.time.get_ticks() is non-deterministic and causes desync
+    glRotatef(frame * 0.05, 0, 1, 0)
     glColor4f(color[0] / 255, color[1] / 255, color[2] / 255, color[3] / 255)
     glutSolidTeapot(1)
     glPopMatrix()
