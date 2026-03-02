@@ -6,8 +6,10 @@ import socket
 import threading
 import queue
 import pickle
+import struct
+import select
 import time
-from typing import Optional, Callable, Tuple
+from typing import Optional, Callable, Tuple, Dict
 
 def test_port_connectivity(host: str, port: int, timeout: float = 2.0) -> Tuple[bool, str]:
     """
@@ -91,6 +93,24 @@ class NetworkPeer:
         self.last_received_frame = -1
         self.last_sent_input = None
         
+        # Input buffering for lockstep synchronization
+        # Store inputs by frame number: {frame: input_data}
+        self.input_buffer = {}
+        self.max_buffer_size = 120  # Buffer up to 2 seconds at 60fps
+        
+        # Local input buffer (for lockstep - store our own inputs by frame)
+        self.local_input_buffer = {}
+        
+        # Event-based waiting for frame inputs (reduces CPU load)
+        self.frame_events = {}  # {frame: threading.Event}
+        self.frame_events_lock = threading.Lock()
+        
+        # Player ID (assigned by relay server in relay mode)
+        self.player_id: Optional[int] = None
+        
+        # Both players ready flag (for relay mode)
+        self.both_players_ready: bool = False
+        
         # Connection callback
         self.on_connected: Optional[Callable] = None
         self.on_disconnected: Optional[Callable] = None
@@ -141,8 +161,8 @@ class NetworkPeer:
                 while not self._stop_event.is_set() and not self.connected:
                     try:
                         conn, addr = listen_socket.accept()
-                        # Set socket timeout for receive operations (0.1s timeout for non-blocking behavior)
-                        conn.settimeout(0.1)
+                        # Set socket to non-blocking for select-based I/O (more CPU-efficient)
+                        conn.setblocking(False)
                         with self.connection_lock:
                             self.socket = conn
                             self.connected = True
@@ -196,8 +216,8 @@ class NetworkPeer:
                         print(f"[Network] Retrying connection to {self.remote_ip}:{self.port}... (attempt {retry_count + 1}/{max_retries})")
                     
                     sock.connect((self.remote_ip, self.port))
-                    # Set socket timeout for receive operations (0.1s timeout for non-blocking behavior)
-                    sock.settimeout(0.1)
+                    # Set socket to non-blocking for select-based I/O (more CPU-efficient)
+                    sock.setblocking(False)
                     
                     with self.connection_lock:
                         self.socket = sock
@@ -445,15 +465,17 @@ class NetworkPeer:
                         print(f"[Network] Retrying connection to relay server... (attempt {retry_count + 1}/{max_retries})")
                     
                     sock.connect((self.relay_server_ip, self.relay_server_port))
-                    sock.settimeout(0.1)
+                    # Set socket to non-blocking for select-based I/O (more CPU-efficient)
+                    sock.setblocking(False)
                     
                     with self.connection_lock:
                         self.socket = sock
                         self.connected = True
                     print(f"[Network] ✓ Connected to relay server")
                     
-                    if self.on_connected:
-                        self.on_connected()
+                    # Don't call on_connected here - wait for player_assigned message
+                    # if self.on_connected:
+                    #     self.on_connected()
                     
                     self._start_threads()
                     print("[Network] Send/receive threads started")
@@ -553,11 +575,21 @@ class NetworkPeer:
                         continue
                     sock = self.socket
                 
-                # Receive data
+                # Use select for non-blocking I/O (more CPU-efficient)
+                try:
+                    ready, _, _ = select.select([sock], [], [], 0.1)  # 100ms timeout
+                    if not ready:
+                        continue  # No data available, continue loop
+                except (OSError, ValueError):
+                    # Socket error or closed
+                    continue
+                
+                # Receive data (non-blocking now due to select)
                 try:
                     data = sock.recv(4096)
-                except (socket.timeout, OSError):
-                    continue  # Timeout is normal, just continue
+                except (BlockingIOError, OSError):
+                    # No data available (non-blocking socket) or socket error
+                    continue
                 
                 if not data:
                     print("[Network] Connection closed by peer (other side closed connection)")
@@ -583,8 +615,23 @@ class NetworkPeer:
                             buffer = buffer[expected_size:]
                             expected_size = None
                             
-                            # Handle received input
-                            if message.get("type") == "input":
+                            # Handle received messages
+                            if message.get("type") == "player_assigned":
+                                # Receive player ID from relay server
+                                self.player_id = message.get("player_id")
+                                print(f"[Network] Assigned Player ID: {self.player_id}")
+                                if self.on_connected:
+                                    self.on_connected()
+                            
+                            elif message.get("type") == "both_players_ready":
+                                # Both players are now connected - game can start
+                                self.both_players_ready = True
+                                print(f"[Network] ✓ Both players ready! Game can start.")
+                                print(f"[Network] DEBUG: both_players_ready flag set to True")
+                                if self.on_connected:
+                                    self.on_connected()
+                            
+                            elif message.get("type") == "input":
                                 frame = message.get("frame", 0)
                                 input_data = message.get("input")
                                 
@@ -592,16 +639,43 @@ class NetworkPeer:
                                 if frame < 5:
                                     print(f"[Network] Received input frame {frame}: {input_data[:2] if isinstance(input_data, list) and len(input_data) > 0 else input_data}")
                                 
-                                # Add to queue (non-blocking)
+                                # Store in frame-based buffer for lockstep synchronization
+                                if not hasattr(self, 'input_buffer'):
+                                    self.input_buffer = {}
+                                self.input_buffer[frame] = input_data
+                                self.last_received_frame = max(self.last_received_frame, frame)
+                                
+                                # Clean up old buffer entries (prevent memory leak)
+                                if len(self.input_buffer) > self.max_buffer_size:
+                                    oldest_frame = min(self.input_buffer.keys())
+                                    del self.input_buffer[oldest_frame]
+                                
+                                # Signal waiting threads that this frame is available (CPU-efficient)
+                                with self.frame_events_lock:
+                                    if frame in self.frame_events:
+                                        self.frame_events[frame].set()
+                                    
+                                    # Clean up old frame events (prevent memory leak)
+                                    if len(self.frame_events) > 60:  # Keep last 60 frame events
+                                        oldest_frame = min(self.frame_events.keys())
+                                        del self.frame_events[oldest_frame]
+                                
+                                # Also add to queue for backward compatibility
                                 try:
                                     if self.input_queue.full():
                                         self.input_queue.get_nowait()  # Remove oldest
                                     self.input_queue.put_nowait((frame, input_data))
-                                    self.last_received_frame = max(self.last_received_frame, frame)
                                 except queue.Full:
                                     pass  # Queue full, drop this input
                                 except Exception as e:
                                     print(f"[Network] Error queuing received input: {e}")
+                                
+                                # Clean up old frames from buffer
+                                if not hasattr(self, 'max_buffer_size'):
+                                    self.max_buffer_size = 120
+                                if len(self.input_buffer) > self.max_buffer_size:
+                                    min_frame = min(self.input_buffer.keys())
+                                    del self.input_buffer[min_frame]
                             
                             elif message.get("type") == "ping":
                                 # Respond to ping
@@ -625,9 +699,10 @@ class NetworkPeer:
         """Send inputs to the other peer."""
         while not self._stop_event.is_set():
             try:
-                # Get input from queue (blocking with timeout)
+                # Get input from queue (shorter timeout for faster response)
+                # Prioritize inputs - check queue more frequently
                 try:
-                    message = self.send_queue.get(timeout=0.1)
+                    message = self.send_queue.get(timeout=0.001)  # 10ms instead of 100ms for faster sending
                 except queue.Empty:
                     continue
                 
@@ -642,8 +717,8 @@ class NetworkPeer:
                     size = len(data).to_bytes(4, byteorder='big')
                     sock.sendall(size + data)
                     # Debug: print first few sends
-                    if message.get("type") == "input" and self.frame_number < 5:
-                        print(f"[Network] Sent input frame {message.get('frame')}: {message.get('input')[:2]}")
+                    # if message.get("type") == "input" and self.frame_number < 5:
+                    #     print(f"[Network] Sent input frame {message.get('frame')}: {message.get('input')[:2]}")
                 except (BrokenPipeError, ConnectionResetError, OSError) as e:
                     print(f"[Network] Send error (connection lost): {e}")
                     self.disconnect()
@@ -679,10 +754,28 @@ class NetworkPeer:
             "timestamp": time.time()
         }
         
+        # Try to send immediately (priority) to reduce latency
+        # If queue is full, fall back to queuing
         try:
             self.send_queue.put_nowait(message)
         except queue.Full:
-            pass  # Queue full, drop this input
+            # Queue full - try to make room by dropping oldest input
+            try:
+                # Remove oldest message if it's an input
+                temp_queue = queue.Queue()
+                dropped = False
+                while not self.send_queue.empty():
+                    msg = self.send_queue.get_nowait()
+                    if msg.get("type") == "input" and not dropped:
+                        dropped = True  # Drop oldest input
+                        continue
+                    temp_queue.put_nowait(msg)
+                # Put new message and restore others
+                temp_queue.put_nowait(message)
+                while not temp_queue.empty():
+                    self.send_queue.put_nowait(temp_queue.get_nowait())
+            except:
+                pass  # If all else fails, drop this input
         except Exception as e:
             print(f"[Network] Error queuing input: {e}")
     
@@ -705,6 +798,52 @@ class NetworkPeer:
                 break
         
         return latest
+    
+    def has_input_for_frame(self, frame: int) -> bool:
+        """Check if we have input for a specific frame."""
+        if not hasattr(self, 'input_buffer'):
+            self.input_buffer = {}
+        return frame in self.input_buffer
+    
+    def wait_for_frame_input(self, frame: int, timeout: float = 0.15) -> bool:
+        """
+        Wait for input for a specific frame using Event-based waiting (CPU-efficient).
+        Returns True if input is available, False if timeout.
+        """
+        # Check if already available
+        if self.has_input_for_frame(frame):
+            return True
+        
+        # Get or create event for this frame
+        with self.frame_events_lock:
+            if frame not in self.frame_events:
+                self.frame_events[frame] = threading.Event()
+            event = self.frame_events[frame]
+        
+        # Wait for event (this is much more CPU-efficient than busy-waiting)
+        if event.wait(timeout=timeout):
+            # Clean up event after use
+            with self.frame_events_lock:
+                if frame in self.frame_events:
+                    del self.frame_events[frame]
+            return True
+        
+        # Timeout - clean up event
+        with self.frame_events_lock:
+            if frame in self.frame_events:
+                del self.frame_events[frame]
+        return False
+    
+    def get_input_for_frame(self, frame: int) -> Optional[list]:
+        """
+        Get input for a specific frame number (for lockstep synchronization).
+        Returns None if input for that frame is not available yet.
+        """
+        return self.input_buffer.get(frame)
+    
+    def has_input_for_frame(self, frame: int) -> bool:
+        """Check if we have input for a specific frame."""
+        return frame in self.input_buffer
     
     def send_message(self, message: dict):
         """Send a custom message to the other peer."""

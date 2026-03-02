@@ -148,6 +148,15 @@ class PlayerSelectionScreen:
                     self.game.pose_viewer = PoseViewer(shared_state=self.game.pose_worker)
                 except:
                     self.game.pose_viewer = None
+            
+            # Reinitialize input devices
+            self.game.Input_device_available()
+            
+            # Set default characters and stage, then go directly to game
+            self.game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+            self.game.selected_stage = ["Reencor/Training"]
+            # Go directly to versus screen (skip character selection)
+            self.game.screen_sequence += [VersusScreen]
         elif self.game.num_players == 2:
             # Two players: network mode - initialize network
             self.game.network_mode = True
@@ -236,6 +245,11 @@ class PlayerSelectionScreen:
                 )
             self.game.network_peer.start()
             
+            # Store relay mode info
+            self.game.relay_mode = relay_mode
+            self.game.relay_server_ip = relay_server_ip
+            self.game.relay_server_port = relay_server_port
+            
             # Wait for connection to establish
             import time
             max_wait = 60  # Wait up to 60 seconds for connection
@@ -252,6 +266,40 @@ class PlayerSelectionScreen:
             
             if self.game.network_peer.is_connected():
                 print("[Network] ✓ Connection established, starting game")
+                # Wait for player ID assignment in relay mode
+                if relay_mode:
+                    print("[Network] Waiting for player ID assignment from relay server...")
+                    wait_count = 0
+                    while self.game.network_peer.player_id is None and wait_count < 100:
+                        time.sleep(0.1)
+                        wait_count += 1
+                    if self.game.network_peer.player_id:
+                        print(f"[Network] ✓ Assigned as Player {self.game.network_peer.player_id}")
+                    else:
+                        print("[Network] ⚠️  WARNING: Player ID not assigned, defaulting to Player 1")
+                        self.game.network_peer.player_id = 1
+                    
+                    # Wait for both players to be ready
+                    print("[Network] Waiting for both players to connect...")
+                    wait_count = 0
+                    while not getattr(self.game.network_peer, 'both_players_ready', False) and wait_count < 600:  # 60 seconds
+                        time.sleep(0.1)
+                        wait_count += 1
+                        if wait_count % 50 == 0:
+                            elapsed = time.time() - start_time
+                            print(f"[Network] Still waiting for second player... ({elapsed:.1f}s elapsed)")
+                    
+                    if self.game.network_peer.both_players_ready:
+                        print("[Network] ✓ Both players ready! Starting game...")
+                        # Set deterministic random seed for synchronized gameplay
+                        # Use player_id to ensure both players use the same seed
+                        import random
+                        sync_seed = 42  # Fixed seed for deterministic behavior
+                        random.seed(sync_seed)
+                        self.game.network_seed = sync_seed
+                        print(f"[Network] Set random seed to {sync_seed} for deterministic gameplay")
+                    else:
+                        print("[Network] ⚠️  WARNING: Both players not ready, but proceeding anyway")
             else:
                 print("[Network] ✗ WARNING: Connection not established after 60 seconds")
                 print("[Network] Make sure the other player is running with --client (or --host)")
@@ -538,6 +586,19 @@ class VersusScreen:
         game.camera.pos = [0, 320, 400]
         self.selected_stage_objects = []
         self.selected_character_objects = []
+        
+        # For network relay mode, assign characters based on player_id
+        # Player 1 gets Ryu, Player 2 gets Ken
+        if game.network_mode and game.relay_mode and game.network_peer and game.network_peer.player_id:
+            player_id = game.network_peer.player_id
+            if player_id == 1:
+                # Player 1: Ryu (team 1) vs Ken (team 2)
+                game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+            elif player_id == 2:
+                # Player 2: Ken (team 2) vs Ryu (team 1)
+                # Note: We keep the same order but the input devices will be swapped
+                game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+            print(f"[VersusScreen] Player {player_id} - Characters: {game.selected_characters}")
 
         load_objects(game, self)
 

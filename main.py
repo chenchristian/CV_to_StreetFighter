@@ -148,6 +148,10 @@ class GameObject:
 
         self.emu_frame = 0
         self.hitstop = 0
+        
+        # Frame synchronization for network mode
+        self.sync_frame = 0  # Synchronized frame counter (shared between players)
+        self.frame_wait_timeout = 0.1  # Max time to wait for frame input (100ms)
         self.camera_focus_point = [0, 0, -400]
         self.superstop, self.camera_path, self.frame, self.pos, self.draw_shake = (
             0,
@@ -211,32 +215,56 @@ class GameObject:
             # Two players: network mode
             if self.network_mode:
                 if self.relay_mode:
-                    # Relay mode: both players work the same way
-                    # Player 1 uses local input and sends it, Player 2 receives from network
-                    # Relay server routes messages between the two players
-                    # This is the same as host mode, but both players connect to relay server
-                    if self.use_keyboard:
-                        self.input_device_list = [
-                            InputDevice(self, 1, 1, "keyboard",
-                                      network_peer=self.network_peer),
-                            InputDevice(self, 2, 2, "network",
-                                      network_peer=self.network_peer)
-                        ]
-                    elif self.pose_worker:
-                        self.input_device_list = [
-                            InputDevice(self, 1, 1, "external",
-                                      pose_worker=self.pose_worker,
-                                      network_peer=self.network_peer),
-                            InputDevice(self, 2, 2, "network",
-                                      network_peer=self.network_peer)
-                        ]
+                    # Relay mode: use player_id from relay server to determine setup
+                    # If player_id is None, default to 1 (shouldn't happen if connection worked)
+                    player_id = self.network_peer.player_id if self.network_peer and self.network_peer.player_id else 1
+                    
+                    if player_id == 1:
+                        # Player 1: use local input for player 1, receive network input for player 2
+                        if self.use_keyboard:
+                            self.input_device_list = [
+                                InputDevice(self, 1, 1, "keyboard",
+                                          network_peer=self.network_peer),
+                                InputDevice(self, 2, 2, "network",
+                                          network_peer=self.network_peer)
+                            ]
+                        elif self.pose_worker:
+                            self.input_device_list = [
+                                InputDevice(self, 1, 1, "external",
+                                          pose_worker=self.pose_worker,
+                                          network_peer=self.network_peer),
+                                InputDevice(self, 2, 2, "network",
+                                          network_peer=self.network_peer)
+                            ]
+                        else:
+                            self.input_device_list = [
+                                InputDevice(self, 1, 1, "keyboard",
+                                          network_peer=self.network_peer),
+                                InputDevice(self, 2, 2, "network",
+                                          network_peer=self.network_peer)
+                            ]
                     else:
+                        # Player 2: receive network input for player 1, use local input for player 2
                         self.input_device_list = [
-                            InputDevice(self, 1, 1, "keyboard",
-                                      network_peer=self.network_peer),
-                            InputDevice(self, 2, 2, "network",
+                            InputDevice(self, 1, 1, "network",
                                       network_peer=self.network_peer)
                         ]
+                        if self.use_keyboard:
+                            self.input_device_list.append(
+                                InputDevice(self, 2, 2, "keyboard",
+                                          network_peer=self.network_peer)
+                            )
+                        elif self.pose_worker:
+                            self.input_device_list.append(
+                                InputDevice(self, 2, 2, "network_sender",
+                                          pose_worker=self.pose_worker,
+                                          network_peer=self.network_peer)
+                            )
+                        else:
+                            self.input_device_list.append(
+                                InputDevice(self, 2, 2, "keyboard",
+                                          network_peer=self.network_peer)
+                            )
                 elif self.is_host:
                     # Host: Player 1 uses local input, Player 2 receives from network
                     if self.use_keyboard:
@@ -447,6 +475,24 @@ class GameObject:
                     self.camera_path, self.frame = {}, [0, 0]
 
     def gameplay(self, *args):
+        # For network mode: implement lockstep synchronization
+        # Both players must wait for each other's input before processing a frame
+        if self.network_mode and self.network_peer and self.network_peer.is_connected() and self.relay_mode:
+            next_frame = self.emu_frame + 1
+            
+            # True lockstep: 
+            # 1. Both players send their input for next_frame (done in InputDevice.update())
+            # 2. Both players wait for the other player's input for next_frame (CPU-efficient Event-based wait)
+            # 3. Only then process the frame
+            
+            # Optimistic processing: Only wait if input is not already available
+            # This reduces latency when inputs arrive quickly
+            if not self.network_peer.has_input_for_frame(next_frame):
+                # Optimize timeout based on connection type
+                is_localhost = self.remote_ip == "127.0.0.1" or self.remote_ip == "localhost"
+                timeout = 0.05 if is_localhost else 0.15  # 50ms for localhost, 150ms for network
+                self.network_peer.wait_for_frame_input(next_frame, timeout=timeout)
+        
         self.emu_frame += 1
         for object in self.object_list:
             object.update(self.camera_focus_point)

@@ -129,8 +129,9 @@ class InputDevice:
         raw_input = self.pose_worker.get_latest_game_input()
         
         # If network_peer is available, also send inputs to network
+        # Send input for NEXT frame (lockstep synchronization)
         if self.network_peer and self.network_peer.is_connected():
-            self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+            self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
         
         self.get_press(raw_input)
 
@@ -257,7 +258,7 @@ class InputDevice:
         )
 
     def network_mode(self):
-        """Receive inputs from network peer"""
+        """Receive inputs from network peer - uses frame-based synchronization"""
         if self.network_peer is None:
             return
         
@@ -267,8 +268,15 @@ class InputDevice:
             self.get_press([[0,0],0,0,0,0,0,0,0,0,0,0])
             return
         
-        # Get latest input from network
-        network_input = self.network_peer.get_latest_input()
+        # For lockstep: get input for the NEXT frame (which will be processed in gameplay())
+        # This ensures both players process the same frame with the same inputs
+        next_frame = self.game.emu_frame + 1
+        network_input = self.network_peer.get_input_for_frame(next_frame)
+        
+        # Fallback to latest input if frame-specific input not available (for backward compatibility)
+        if network_input is None:
+            network_input = self.network_peer.get_latest_input()
+        
         if network_input is not None:
             # Ensure input has correct format (11 elements: dpad + 10 buttons)
             if len(network_input) < 11:
@@ -277,10 +285,36 @@ class InputDevice:
                 while len(padded_input) < 11:
                     padded_input.append(0)
                 network_input = padded_input
+            
+            # CRITICAL: Reset double-tap sequence index before processing network input
+            # This prevents false dash detection when receiving inputs over network
+            # The sequence index can get out of sync between sender and receiver
+            for idx, move in enumerate(self.sequence_commands):
+                if move["command"] == "Doble_tap_forward":
+                    # Only reset if we're partway through the sequence (not at start)
+                    # This allows legitimate double-taps to still work
+                    if self.sequence_index[idx] > 1:
+                        # Check if this input would continue the sequence legitimately
+                        expected_prev = move["sequence"][self.sequence_index[idx] - 1]
+                        expected_curr = move["sequence"][self.sequence_index[idx]]
+                        # Calculate what the transition would be
+                        prev_dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][self.last_input[0][0] * (1 if self.active_object == None else self.active_object.face)][self.last_input[0][1] - 1]
+                        curr_dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][network_input[0][0] * (1 if self.active_object == None else self.active_object.face)][network_input[0][1] - 1]
+                        transition = prev_dpad + curr_dpad
+                        # Only reset if transition doesn't match expected
+                        if transition[0] != expected_prev or curr_dpad != expected_curr:
+                            self.sequence_index[idx] = 1
+            
+            # Apply the input - get_press will handle last_input update correctly
             self.get_press(network_input)
         else:
-            # No input received, use neutral (11 elements: dpad + 10 buttons)
-            self.get_press([[0,0],0,0,0,0,0,0,0,0,0,0])
+            # No input received - DON'T use neutral as fallback to prevent false transitions
+            # Instead, reuse last_input to maintain state and prevent false sequence detection
+            # Only use neutral if we don't have a last_input yet
+            if not hasattr(self, 'last_input') or self.last_input == [[0,0],0,0,0,0,0,0,0,0,0,0]:
+                self.get_press([[0,0],0,0,0,0,0,0,0,0,0,0])
+            # Otherwise, don't call get_press - this prevents false transitions
+            # The character will continue with the last known input state
 
     def network_sender_mode(self):
         """Send local inputs to network and use them locally"""
@@ -318,9 +352,10 @@ class InputDevice:
             ]
         
         # Send to network peer
+        # Send input for NEXT frame (lockstep synchronization)
         if self.network_peer:
             if self.network_peer.is_connected():
-                self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+                self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
             # If not connected, input is still used locally (will be sent once connected)
         
         # Use the input locally
@@ -364,8 +399,9 @@ class InputDevice:
             ]
         
         # Always send local input to network (relay server will route it to other player)
+        # Send input for NEXT frame (lockstep synchronization)
         if self.network_peer and self.network_peer.is_connected():
-            self.network_peer.send_input(raw_input, frame=self.game.emu_frame)
+            self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
         
         # Always use local input for this player's character
         self.get_press(raw_input)
@@ -419,20 +455,38 @@ class InputDevice:
         ]
         commands = []
         for index, move in enumerate(self.sequence_commands):
-            if (
-                dpad
-                is self.sequence_commands[index]["sequence"][self.sequence_index[index]]
-                and dpad_trasition[0]
-                is self.sequence_commands[index]["sequence"][
-                    self.sequence_index[index] - 1
-                ]
-            ):
+            # Special handling for double-tap sequences to prevent false detection
+            # Double-tap requires: neutral→forward→neutral→forward
+            is_double_tap = move["command"] == "Doble_tap_forward"
+            
+            # Get expected previous state and current state for this sequence position
+            expected_prev = self.sequence_commands[index]["sequence"][self.sequence_index[index] - 1]
+            expected_curr = self.sequence_commands[index]["sequence"][self.sequence_index[index]]
+            
+            # Check if both the transition and current state match
+            transition_matches = dpad_trasition[0] == expected_prev
+            current_matches = dpad == expected_curr
+            
+            if transition_matches and current_matches:
+                # Valid transition in sequence
                 self.sequence_index[index] = self.sequence_index[index] + 1
                 if self.sequence_index[index] >= len(
                     self.sequence_commands[index]["sequence"]
                 ):
-                    self.sequence_index[index] = 1  # if move.get("press", False) else 1
+                    self.sequence_index[index] = 1  # Reset after completing sequence
                     commands.append(move["command"])
+            else:
+                # Transition doesn't match - reset sequence
+                # For double-tap, be more strict: reset if we're not at the very start
+                if is_double_tap and self.sequence_index[index] > 1:
+                    # Reset double-tap sequence if we're partway through and transition doesn't match
+                    self.sequence_index[index] = 1
+                elif self.sequence_index[index] == 1 and dpad == expected_curr:
+                    # At start of sequence and current input matches - keep waiting
+                    pass
+                else:
+                    # Reset to beginning of sequence
+                    self.sequence_index[index] = 1
 
         for index in range(1, 7):
             self.press_charge[index] = (
