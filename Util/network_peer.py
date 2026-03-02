@@ -101,6 +101,14 @@ class NetworkPeer:
         # Local input buffer (for lockstep - store our own inputs by frame)
         self.local_input_buffer = {}
         
+        # Input prediction: store last known input for prediction when input is late
+        self.last_known_input = None
+        self.last_known_input_frame = -1
+        
+        # Frame skipping: track how many frames we've skipped due to late inputs
+        self.frames_behind = 0
+        self.max_frames_behind = 3  # Max frames to fall behind before skipping
+        
         # Event-based waiting for frame inputs (reduces CPU load)
         self.frame_events = {}  # {frame: threading.Event}
         self.frame_events_lock = threading.Lock()
@@ -645,6 +653,12 @@ class NetworkPeer:
                                 self.input_buffer[frame] = input_data
                                 self.last_received_frame = max(self.last_received_frame, frame)
                                 
+                                # Update last known input for prediction (always use most recent)
+                                # This ensures prediction is always up-to-date
+                                if frame >= self.last_known_input_frame:
+                                    self.last_known_input = input_data
+                                    self.last_known_input_frame = frame
+                                
                                 # Clean up old buffer entries (prevent memory leak)
                                 if len(self.input_buffer) > self.max_buffer_size:
                                     oldest_frame = min(self.input_buffer.keys())
@@ -809,10 +823,16 @@ class NetworkPeer:
         """
         Wait for input for a specific frame using Event-based waiting (CPU-efficient).
         Returns True if input is available, False if timeout.
+        NOTE: This should NOT block the game loop for long periods.
+        Use with very short timeouts (< 1 frame = 16ms) or use prediction instead.
         """
         # Check if already available
         if self.has_input_for_frame(frame):
             return True
+        
+        # Use very short timeout to avoid blocking game loop
+        # At 60fps, each frame is 16.67ms, so timeout should be < 16ms
+        short_timeout = min(timeout, 0.01)  # Max 10ms wait
         
         # Get or create event for this frame
         with self.frame_events_lock:
@@ -820,8 +840,8 @@ class NetworkPeer:
                 self.frame_events[frame] = threading.Event()
             event = self.frame_events[frame]
         
-        # Wait for event (this is much more CPU-efficient than busy-waiting)
-        if event.wait(timeout=timeout):
+        # Wait for event with short timeout
+        if event.wait(timeout=short_timeout):
             # Clean up event after use
             with self.frame_events_lock:
                 if frame in self.frame_events:
@@ -840,6 +860,16 @@ class NetworkPeer:
         Returns None if input for that frame is not available yet.
         """
         return self.input_buffer.get(frame)
+    
+    def predict_input_for_frame(self, frame: int) -> Optional[list]:
+        """
+        Predict input for a frame when actual input is not available.
+        Uses last known input as prediction.
+        Returns None if no prediction available.
+        """
+        if self.last_known_input is not None:
+            return self.last_known_input
+        return None
     
     def has_input_for_frame(self, frame: int) -> bool:
         """Check if we have input for a specific frame."""

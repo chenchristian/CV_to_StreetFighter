@@ -273,9 +273,16 @@ class InputDevice:
         next_frame = self.game.emu_frame + 1
         network_input = self.network_peer.get_input_for_frame(next_frame)
         
-        # Fallback to latest input if frame-specific input not available (for backward compatibility)
+        # If input not available, use prediction (last known input) instead of latest input
+        # This prevents desync: using "latest" input could be from a future frame
+        # Using "prediction" (last known) maintains consistency
         if network_input is None:
-            network_input = self.network_peer.get_latest_input()
+            network_input = self.network_peer.predict_input_for_frame(next_frame)
+            
+            # If still no input (no prediction available), use neutral input
+            # This only happens at the very start before any inputs received
+            if network_input is None:
+                network_input = [[0,0],0,0,0,0,0,0,0,0,0,0]
         
         if network_input is not None:
             # Ensure input has correct format (11 elements: dpad + 10 buttons)

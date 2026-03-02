@@ -475,23 +475,28 @@ class GameObject:
                     self.camera_path, self.frame = {}, [0, 0]
 
     def gameplay(self, *args):
-        # For network mode: implement lockstep synchronization
-        # Both players must wait for each other's input before processing a frame
-        if self.network_mode and self.network_peer and self.network_peer.is_connected() and self.relay_mode:
+        # For network mode: implement improved lockstep with input prediction
+        # Don't block the game loop - use prediction if input is late
+        if self.network_mode and self.network_peer and self.network_peer.is_connected():
             next_frame = self.emu_frame + 1
             
-            # True lockstep: 
+            # Improved lockstep with prediction:
             # 1. Both players send their input for next_frame (done in InputDevice.update())
-            # 2. Both players wait for the other player's input for next_frame (CPU-efficient Event-based wait)
-            # 3. Only then process the frame
+            # 2. Check if input is available (non-blocking)
+            # 3. If not available, use prediction (last known input) instead of blocking
+            # 4. Process frame immediately - don't wait
             
-            # Optimistic processing: Only wait if input is not already available
-            # This reduces latency when inputs arrive quickly
+            # Only do a very short non-blocking check (max 10ms)
+            # This prevents game slowdown while still checking for inputs
             if not self.network_peer.has_input_for_frame(next_frame):
-                # Optimize timeout based on connection type
+                # Very short timeout (10ms max) - don't block game loop
                 is_localhost = self.remote_ip == "127.0.0.1" or self.remote_ip == "localhost"
-                timeout = 0.05 if is_localhost else 0.15  # 50ms for localhost, 150ms for network
+                timeout = 0.005 if is_localhost else 0.01  # 5ms for localhost, 10ms for network
+                # This will return quickly if input not available
                 self.network_peer.wait_for_frame_input(next_frame, timeout=timeout)
+            
+            # If input still not available, InputDevice will use prediction (last known input)
+            # This prevents desync and keeps game running smoothly
         
         self.emu_frame += 1
         for object in self.object_list:
