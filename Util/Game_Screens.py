@@ -84,6 +84,322 @@ class TitleScreen:
         pass
 
 
+class PlayerSelectionScreen:
+    """Screen to select number of players (1 or 2)"""
+    def __init__(self, game, *args):
+        game.camera_focus_point = [0, 0, 400]
+        self.game = game
+        
+        # Store selection in game object
+        self.game.num_players = None  # Will be: 1 or 2
+        
+        self.player_options = {
+            "1 Player": 1,
+            "2 Players (Network)": 2,
+        }
+        
+        self.mode_menu = [
+            Menu_Item_String(
+                game=game, 
+                name=option, 
+                string=option, 
+                pos=(-550, 250 - index * 100, 0)
+            )
+            for index, option in enumerate(self.player_options.keys())
+        ]
+        
+        self.menu_selectors = [
+            Menu_Selector(
+                game=game,
+                inputdevice=game.input_device_list[0] if len(game.input_device_list) > 0 else game.dummy_input_device,
+                menu=self.mode_menu,
+                index=0,
+            )
+        ]
+        self.selection_timer = 60
+
+    def __loop__(self):
+        for mode in self.mode_menu:
+            mode.update(self.game.camera_focus_point)
+            mode.draw(self.game.screen, self.game.camera.pos)
+        for selector in self.menu_selectors:
+            selector.update(self.game.camera_focus_point)
+            selector.draw(self.game.screen, self.game.camera.pos)
+        if not (None in [selected.selected_name for selected in self.menu_selectors]):
+            self.selection_timer -= 1
+            if self.selection_timer == 0:
+                self.game.active = False
+        else:
+            self.selection_timer = 120
+
+    def __dein__(self):
+        # Store the selected number of players
+        selected_option = self.menu_selectors[0].selected_name
+        self.game.num_players = self.player_options[selected_option]
+        
+        # Start appropriate pose workers based on selection
+        if self.game.num_players == 1:
+            # Single player: use regular pose worker
+            if self.game.pose_worker:
+                self.game.pose_worker.start()
+                # Set up pose viewer for single player
+                try:
+                    from ComputerVision.pose_viewer import PoseViewer
+                    self.game.pose_viewer = PoseViewer(shared_state=self.game.pose_worker)
+                except:
+                    self.game.pose_viewer = None
+            
+            # Reinitialize input devices
+            self.game.Input_device_available()
+            
+            # Set default characters and stage, then go directly to game
+            self.game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+            self.game.selected_stage = ["Reencor/Training"]
+            # Go directly to versus screen (skip character selection)
+            self.game.screen_sequence += [VersusScreen]
+        elif self.game.num_players == 2:
+            # Two players: network mode - initialize network
+            self.game.network_mode = True
+            from Util.network_peer import NetworkPeer
+            
+            # For now, use command line args or defaults
+            # In a full implementation, you'd have a network setup screen
+            import sys
+            
+            # Check for CPU player flags
+            cpu_player1 = "--cpu-player1" in sys.argv
+            cpu_player2 = "--cpu-player2" in sys.argv
+            # Store in game object so Input_device_available() can access them
+            self.game.cpu_player1 = cpu_player1
+            self.game.cpu_player2 = cpu_player2
+            
+            # Check for relay mode first
+            relay_mode = "--relay" in sys.argv
+            relay_server_ip = None
+            relay_server_port = None
+            
+            if relay_mode:
+                # Relay mode: both players connect to relay server
+                try:
+                    relay_ip_idx = sys.argv.index("--relay-ip")
+                    relay_server_ip = sys.argv[relay_ip_idx + 1]
+                    
+                    # Validate IP address is not empty
+                    if not relay_server_ip or relay_server_ip.strip() == "":
+                        print("[Network] ERROR: --relay-ip cannot be empty")
+                        print("[Network] Usage: python main.py --relay --relay-ip <SERVER_IP> [--relay-port <PORT>]")
+                        print("[Network] Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
+                        relay_mode = False
+                        relay_server_ip = None
+                except (ValueError, IndexError):
+                    print("[Network] ERROR: --relay-ip required when using --relay mode")
+                    print("[Network] Usage: python main.py --relay --relay-ip <SERVER_IP> [--relay-port <PORT>]")
+                    print("[Network] Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
+                    relay_mode = False
+                    relay_server_ip = None
+                
+                try:
+                    relay_port_idx = sys.argv.index("--relay-port")
+                    relay_server_port = int(sys.argv[relay_port_idx + 1])
+                except (ValueError, IndexError):
+                    relay_server_port = 5555  # Default port
+                
+                self.game.is_host = False  # Not used in relay mode
+                self.game.relay_mode = True  # Set relay mode flag
+                self.game.remote_ip = "127.0.0.1"  # Not used in relay mode
+                print(f"[Network] Relay mode: Connecting to server at {relay_server_ip}:{relay_server_port}")
+            elif "--host" in sys.argv:
+                self.game.is_host = True
+                self.game.remote_ip = "127.0.0.1"
+            elif "--client" in sys.argv:
+                self.game.is_host = False
+                # Get IP from args - required for client mode
+                try:
+                    ip_idx = sys.argv.index("--ip")
+                    self.game.remote_ip = sys.argv[ip_idx + 1]
+                except (ValueError, IndexError):
+                    # Default to localhost only for local testing
+                    # For network play, user must provide --ip with actual host IP
+                    print("[Network] WARNING: No --ip specified, defaulting to 127.0.0.1 (localhost)")
+                    print("[Network] This only works if host and client are on the same machine.")
+                    print("[Network] For network play, use: python main.py --client --ip <HOST_IP_ADDRESS>")
+                    print("[Network] Example: python main.py --client --ip 192.168.1.100")
+                    self.game.remote_ip = "127.0.0.1"
+            else:
+                # Default to host if no args
+                self.game.is_host = True
+                self.game.remote_ip = "127.0.0.1"
+            
+            # Check for --no-camera or --keyboard flag
+            if "--no-camera" in sys.argv or "--keyboard" in sys.argv:
+                self.game.use_keyboard = True
+            
+            # Initialize network peer
+            if relay_mode:
+                self.game.network_peer = NetworkPeer(
+                    host=False,  # Not used in relay mode
+                    remote_ip="127.0.0.1",  # Not used in relay mode
+                    port=5555,  # Not used in relay mode
+                    relay_mode=True,
+                    relay_server_ip=relay_server_ip,
+                    relay_server_port=relay_server_port
+                )
+            else:
+                self.game.network_peer = NetworkPeer(
+                    host=self.game.is_host,
+                    remote_ip=self.game.remote_ip,
+                    port=self.game.port
+                )
+            self.game.network_peer.start()
+            
+            # Store relay mode info
+            self.game.relay_mode = relay_mode
+            self.game.relay_server_ip = relay_server_ip
+            self.game.relay_server_port = relay_server_port
+            
+            # Wait for connection to establish
+            import time
+            max_wait = 60  # Wait up to 60 seconds for connection
+            wait_count = 0
+            start_time = time.time()
+            print("[Network] Waiting for network connection...")
+            while not self.game.network_peer.is_connected() and wait_count < max_wait * 10:
+                time.sleep(0.1)
+                wait_count += 1
+                # Print status every 5 seconds
+                if wait_count % 50 == 0:
+                    elapsed = time.time() - start_time
+                    print(f"[Network] Still waiting for connection... ({elapsed:.1f}s elapsed)")
+            
+            if self.game.network_peer.is_connected():
+                print("[Network] ✓ Connection established, starting game")
+                # Set server/client mode for direct P2P mode (not relay)
+                if not relay_mode:
+                    # In direct P2P: host is server (Player 1), client is client (Player 2)
+                    self.game.network_peer.is_server = self.game.is_host
+                    self.game.network_peer.is_client = not self.game.is_host
+                    # Set player_id for consistency (host = Player 1, client = Player 2)
+                    self.game.network_peer.player_id = 1 if self.game.is_host else 2
+                    print(f"[Network] Direct P2P mode: {'SERVER (Player 1)' if self.game.is_host else 'CLIENT (Player 2)'}")
+                    
+                    # Initialize state manager for server-authoritative mode
+                    try:
+                        from Util.state_manager import StateManager
+                        self.game.state_manager = StateManager(max_history=120)  # Keep 2 seconds of history
+                        self.game.desync_detector = None  # Not needed with server-authoritative mode
+                        print("[Network] Server-authoritative mode: State manager initialized")
+                    except Exception as e:
+                        print(f"[Network] Failed to initialize state manager: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        self.game.desync_detector = None
+                        self.game.state_manager = None
+                    
+                    # Set deterministic random seed for synchronized gameplay
+                    import random
+                    sync_seed = 42  # Fixed seed for deterministic behavior
+                    random.seed(sync_seed)
+                    self.game.network_seed = sync_seed
+                    # Also seed numpy random if used
+                    try:
+                        import numpy as np
+                        np.random.seed(sync_seed)
+                    except:
+                        pass
+                    print(f"[Network] Set random seed to {sync_seed} for deterministic gameplay")
+                    # Reset frame counter to ensure both players start at frame 0
+                    self.game.emu_frame = 0
+                    print(f"[Network] Reset frame counter to 0 for synchronization")
+                
+                # Wait for player ID assignment in relay mode
+                if relay_mode:
+                    print("[Network] Waiting for player ID assignment from relay server...")
+                    wait_count = 0
+                    while self.game.network_peer.player_id is None and wait_count < 100:
+                        time.sleep(0.1)
+                        wait_count += 1
+                    if self.game.network_peer.player_id:
+                        print(f"[Network] ✓ Assigned as Player {self.game.network_peer.player_id}")
+                        # Set server/client mode
+                        self.game.network_peer.is_server = (self.game.network_peer.player_id == 1)
+                        self.game.network_peer.is_client = (self.game.network_peer.player_id == 2)
+                    else:
+                        print("[Network] ⚠️  WARNING: Player ID not assigned, defaulting to Player 1")
+                        self.game.network_peer.player_id = 1
+                        self.game.network_peer.is_server = True
+                        self.game.network_peer.is_client = False
+                    
+                    # Wait for both players to be ready
+                    print("[Network] Waiting for both players to connect...")
+                    wait_count = 0
+                    while not getattr(self.game.network_peer, 'both_players_ready', False) and wait_count < 600:  # 60 seconds
+                        time.sleep(0.1)
+                        wait_count += 1
+                        if wait_count % 50 == 0:
+                            elapsed = time.time() - start_time
+                            print(f"[Network] Still waiting for second player... ({elapsed:.1f}s elapsed)")
+                    
+                    if self.game.network_peer.both_players_ready:
+                        print("[Network] ✓ Both players ready! Starting game...")
+                        # Set deterministic random seed for synchronized gameplay
+                        # CRITICAL: Must set seed BEFORE any random operations
+                        import random
+                        sync_seed = 42  # Fixed seed for deterministic behavior
+                        random.seed(sync_seed)
+                        self.game.network_seed = sync_seed
+                        # Also seed numpy random if used
+                        try:
+                            import numpy as np
+                            np.random.seed(sync_seed)
+                        except:
+                            pass
+                        print(f"[Network] Set random seed to {sync_seed} for deterministic gameplay")
+                        # Reset frame counter to ensure both players start at frame 0
+                        self.game.emu_frame = 0
+                        print(f"[Network] Reset frame counter to 0 for synchronization")
+                        
+                        # Initialize desync detector and state manager
+                        # Initialize state manager for server-authoritative mode
+                        # Server uses it to create state snapshots
+                        try:
+                            from Util.state_manager import StateManager
+                            self.game.state_manager = StateManager(max_history=120)  # Keep 2 seconds of history
+                            self.game.desync_detector = None  # Not needed with server-authoritative mode
+                            print("[Network] Server-authoritative mode: State manager initialized")
+                        except Exception as e:
+                            print(f"[Network] Failed to initialize state manager: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            self.game.desync_detector = None
+                            self.game.state_manager = None
+                    else:
+                        print("[Network] ⚠️  WARNING: Both players not ready, but proceeding anyway")
+            else:
+                print("[Network] ✗ WARNING: Connection not established after 60 seconds")
+                print("[Network] Make sure the other player is running with --client (or --host)")
+                print("[Network] Game will continue but network features won't work")
+            
+            # Start pose worker only if not using keyboard
+            if self.game.pose_worker and not self.game.use_keyboard:
+                self.game.pose_worker.start()
+                try:
+                    from ComputerVision.pose_viewer import PoseViewer
+                    self.game.pose_viewer = PoseViewer(shared_state=self.game.pose_worker)
+                except:
+                    self.game.pose_viewer = None
+            else:
+                self.game.pose_viewer = None
+        
+        # Reinitialize input devices with the selected setup
+        self.game.Input_device_available()
+        
+        # Set default characters and stage, then go directly to game
+        self.game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+        self.game.selected_stage = ["Reencor/Training"]
+        # Go directly to versus screen (skip character selection)
+        self.game.screen_sequence += [VersusScreen]
+
+
 class ModeSelectionScreen:
     def __init__(self, game, *args):
         game.camera_focus_point = [0, 0, 400]
@@ -344,6 +660,19 @@ class VersusScreen:
         game.camera.pos = [0, 320, 400]
         self.selected_stage_objects = []
         self.selected_character_objects = []
+        
+        # For network relay mode, assign characters based on player_id
+        # Player 1 gets Ryu, Player 2 gets Ken
+        if game.network_mode and game.relay_mode and game.network_peer and game.network_peer.player_id:
+            player_id = game.network_peer.player_id
+            if player_id == 1:
+                # Player 1: Ryu (team 1) vs Ken (team 2)
+                game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+            elif player_id == 2:
+                # Player 2: Ken (team 2) vs Ryu (team 1)
+                # Note: We keep the same order but the input devices will be swapped
+                game.selected_characters = ["SF3/Ryu", "SF3/Ken"]
+            print(f"[VersusScreen] Player {player_id} - Characters: {game.selected_characters}")
 
         load_objects(game, self)
 

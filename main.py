@@ -1,6 +1,11 @@
 import os
 import string
 import json
+import warnings
+
+# Suppress protobuf deprecation warnings from MediaPipe
+warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
+
 from pygame import (
     init,
     quit,
@@ -113,9 +118,19 @@ def get_dictionaries(current_dir):
 
 
 class GameObject:
-    def __init__(self,pose_worker=None):
+    def __init__(self, pose_worker=None, use_keyboard=False):
         self.pose_worker = pose_worker
+        self.num_players = None  # Will be set by PlayerSelectionScreen (1 or 2)
+        self.network_mode = False
+        self.is_host = False
+        self.relay_mode = False  # If True, using relay server instead of direct P2P
+        self.network_peer = None
+        self.remote_ip = "127.0.0.1"
+        self.port = 5555
+        self.use_keyboard = use_keyboard  # If True, use keyboard instead of camera
         self.type = "game"
+        self.cpu_player1 = False  # Set via --cpu-player1 command line flag
+        self.cpu_player2 = False  # Set via --cpu-player2 command line flag
 
         mixer.pre_init(44100, -16, 1, 1024)
         init()
@@ -138,6 +153,10 @@ class GameObject:
 
         self.emu_frame = 0
         self.hitstop = 0
+        
+        # Frame synchronization for network mode
+        self.sync_frame = 0  # Synchronized frame counter (shared between players)
+        self.frame_wait_timeout = 0.1  # Max time to wait for frame input (100ms)
         self.camera_focus_point = [0, 0, -400]
         self.superstop, self.camera_path, self.frame, self.pos, self.draw_shake = (
             0,
@@ -155,20 +174,27 @@ class GameObject:
         self.selected_characters = "ryu SF3", "ryu SF3"
         self.selected_stage = "trining stage"
 
-        self.Input_device_available()
+        # Initialize with default keyboard input for menu navigation
+        # Will be reconfigured after player selection
+        self.input_device_list = [InputDevice(self, 1, 1, "keyboard")]
         self.dummy_input_device = dummy_input
+        
+        # Desync detection and state management (for network mode)
+        self.desync_detector = None
+        self.state_manager = None
 
         self.screen_sequence = [
-            ModeSelectionScreen,
+            PlayerSelectionScreen,  # Start with player selection
         ]
         self.current_screen = None
         self.screen_parameters = []
 
-        self.screen_sequence, self.selected_characters, self.selected_stage = (
-            [VersusScreen],
-            ["SF3/Ryu", "SF3/Ken"],
-            ["Reencor/Training"],
-        )
+        # Uncomment below to skip player selection and go straight to game (for testing)
+        # self.screen_sequence, self.selected_characters, self.selected_stage = (
+        #     [VersusScreen],
+        #     ["SF3/Ryu", "SF3/Ken"],
+        #     ["Reencor/Training"],
+        # )
 
         self.record_input = False
         self.reproduce_input = False
@@ -177,22 +203,168 @@ class GameObject:
         self.active_stages = None
 
     def Input_device_available(self):
+        """Configure input devices based on number of players selected"""
         self.input_device_list = []
-
-        # computer vision first
-        if COMPUTER_VISION:
-            self.input_device_list.append(
-                InputDevice(self, 1, 1, "external_2", pose_worker=self.pose_worker)
-            )
-        else:
-            keyboard_count = 1
-            for i in range(keyboard_count):
-                self.input_device_list.append(InputDevice(self, 1, i, "keyboard"))
-
-        # joysticks
-        joystick_count = joystick.get_count()
-        for i in range(joystick_count):
-            self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
+        
+        # If num_players not set yet, use default single player
+        if self.num_players is None:
+            self.num_players = 1
+        
+        if self.num_players == 1:
+            # Single player: use pose worker if available, else keyboard
+            if COMPUTER_VISION and self.pose_worker:
+                self.input_device_list = [
+                    InputDevice(self, 1, 1, "external_2", pose_worker=self.pose_worker)
+                ]
+            elif self.pose_worker:
+                self.input_device_list = [
+                    InputDevice(self, 1, 1, "external", pose_worker=self.pose_worker)
+                ]
+            else:
+                keyboard_count = 1
+                for i in range(keyboard_count):
+                    self.input_device_list.append(InputDevice(self, 1, i, "keyboard"))
+            
+            # joysticks
+            joystick_count = joystick.get_count()
+            for i in range(joystick_count):
+                self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
+        elif self.num_players == 2:
+            # Two players: network mode
+            if self.network_mode:
+                if self.relay_mode:
+                    # Relay mode: use player_id from relay server to determine setup
+                    # If player_id is None, default to 1 (shouldn't happen if connection worked)
+                    player_id = self.network_peer.player_id if self.network_peer and self.network_peer.player_id else 1
+                    
+                    if player_id == 1:
+                        # Player 1 (server): use relay_mode for player 1 to send local input, receive network input for player 2
+                        # CPU mode: if --cpu-player1, use random_network mode instead of local input
+                        if self.cpu_player1:
+                            player1_mode = "random_network"
+                            print("[Network] Player 1 set to CPU mode (random inputs)")
+                        else:
+                            player1_mode = "relay"
+                        
+                        if self.use_keyboard and not self.cpu_player1:
+                            self.input_device_list = [
+                                InputDevice(self, 1, 1, player1_mode,
+                                          network_peer=self.network_peer),
+                                InputDevice(self, 2, 2, "network",
+                                          network_peer=self.network_peer)
+                            ]
+                        elif self.pose_worker and not self.cpu_player1:
+                            self.input_device_list = [
+                                InputDevice(self, 1, 1, player1_mode,
+                                          pose_worker=self.pose_worker,
+                                          network_peer=self.network_peer),
+                                InputDevice(self, 2, 2, "network",
+                                          network_peer=self.network_peer)
+                            ]
+                        else:
+                            self.input_device_list = [
+                                InputDevice(self, 1, 1, player1_mode,
+                                          network_peer=self.network_peer),
+                                InputDevice(self, 2, 2, "network",
+                                          network_peer=self.network_peer)
+                            ]
+                    else:
+                        # Player 2 (client): receive network input for player 1, use relay_mode for player 2 to send local input
+                        # CPU mode: if --cpu-player2, use random_network mode instead of local input
+                        if self.cpu_player2:
+                            player2_mode = "random_network"
+                            print("[Network] Player 2 set to CPU mode (random inputs)")
+                        else:
+                            player2_mode = "relay"
+                        
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                        if self.use_keyboard and not self.cpu_player2:
+                            self.input_device_list.append(
+                                InputDevice(self, 2, 2, player2_mode,
+                                          network_peer=self.network_peer)
+                            )
+                        elif self.pose_worker and not self.cpu_player2:
+                            self.input_device_list.append(
+                                InputDevice(self, 2, 2, player2_mode,
+                                          pose_worker=self.pose_worker,
+                                          network_peer=self.network_peer)
+                            )
+                        else:
+                            self.input_device_list.append(
+                                InputDevice(self, 2, 2, player2_mode,
+                                          network_peer=self.network_peer)
+                            )
+                elif self.is_host:
+                    # Host: Player 1 uses local input, Player 2 receives from network
+                    if self.use_keyboard:
+                        # Use keyboard for Player 1
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "keyboard",
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                    elif self.pose_worker:
+                        # Use camera for Player 1
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "external", 
+                                      pose_worker=self.pose_worker,
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                    else:
+                        # Fallback to keyboard
+                        self.input_device_list = [
+                            InputDevice(self, 1, 1, "keyboard",
+                                      network_peer=self.network_peer),
+                            InputDevice(self, 2, 2, "network",
+                                      network_peer=self.network_peer)
+                        ]
+                else:
+                    # Client: Player 1 receives from network, Player 2 uses local input
+                    self.input_device_list = [
+                        InputDevice(self, 1, 1, "network",
+                                  network_peer=self.network_peer)
+                    ]
+                    # Use keyboard if flag is set, otherwise try camera
+                    # IMPORTANT: Client's Player 2 must use network_sender mode to send inputs to server
+                    if self.use_keyboard:
+                        self.input_device_list.append(
+                            InputDevice(self, 2, 2, "network_sender",
+                                      network_peer=self.network_peer)
+                        )
+                    elif self.pose_worker:
+                        self.input_device_list.append(
+                            InputDevice(self, 2, 2, "network_sender",
+                                      pose_worker=self.pose_worker,
+                                      network_peer=self.network_peer)
+                        )
+                    else:
+                        self.input_device_list.append(
+                            InputDevice(self, 2, 2, "network_sender",
+                                      network_peer=self.network_peer)
+                        )
+            else:
+                # Network not initialized yet - use fallback
+                keyboard_conut = 1
+                joystick_count = joystick.get_count()
+                self.input_device_list = [
+                    InputDevice(self, 1, 1, "keyboard")
+                ]
+                if joystick_count > 0:
+                    for i in range(joystick_count):
+                        self.input_device_list.append(
+                            InputDevice(self, 2, i, "joystick")
+                        )
+                else:
+                    self.input_device_list.append(
+                        InputDevice(self, 2, 2, "none")
+                    )
+>>>>>>> network-multiplayer
 
     def next_screen(self, screen_sequence: list = [TitleScreen]):
         self.active = False
@@ -216,7 +388,8 @@ class GameObject:
 
                 # --- ADD POSE VIEWER POLLING HERE ---
                 try:
-                    pose_viewer.poll()
+                    if hasattr(self, 'pose_viewer') and self.pose_viewer is not None:
+                        self.pose_viewer.poll()
                 except:
                     pass
                 # ------------------------------------
@@ -336,16 +509,74 @@ class GameObject:
                     self.camera_path, self.frame = {}, [0, 0]
 
     def gameplay(self, *args):
-        self.emu_frame += 1
-        for object in self.object_list:
-            object.update(self.camera_focus_point)
-        self.hitstop = self.hitstop - 1 if self.hitstop else 0
+        # Server-authoritative network mode
+        if self.network_mode and self.network_peer and self.network_peer.is_connected():
+            if self.network_peer.is_server:
+                # SERVER (Player 1): Authoritative simulation
+                # Server simulates the game and sends state to clients
+                
+                # InputDevice.update() is called before gameplay(), so inputs are already processed
+                # Player 1 input: already processed by InputDevice[0] (relay_mode - sends and uses local input)
+                # Player 2 input: already processed by InputDevice[1] (network_mode - gets input from network buffer)
+                # No need to manually call get_press() - InputDevice[1].update() already did it via network_mode()
+                
+                # Simulate frame (authoritative)
+                # InputDevice[0] already has Player 1's input processed
+                self.emu_frame += 1
+                for object in self.object_list:
+                    object.update(self.camera_focus_point)
+                self.hitstop = self.hitstop - 1 if self.hitstop else 0
+                
+                for object in self.object_list:
+                    update_display_shake(object)
+                calculate_boxes_collitions(self)
+                update_display_shake(self.camera)
+                self.calculate_camera_focus_point()
+                
+                # Send state to clients periodically
+                self.network_peer.send_game_state(self, self.emu_frame)
+                
+            elif self.network_peer.is_client:
+                # CLIENT (Player 2): Receive state from server
+                # Client sends inputs but doesn't simulate authoritatively
+                
+                # IMPORTANT: InputDevice.update() is called before gameplay(), so inputs are already sent
+                # The client's InputDevice[1] in relay_mode sends local input to server
+                
+                # Check for state update from server
+                latest_state = self.network_peer.get_latest_state()
+                if latest_state:
+                    target_frame = latest_state.frame
+                    
+                    # Always apply server state - server is authoritative
+                    # This ensures projectiles and all game objects are synchronized
+                    if target_frame >= self.emu_frame:
+                        # Server is at or ahead of client - apply server state
+                        # This will set emu_frame to target_frame and restore all game state
+                        latest_state.apply_to_game(self)
+                        # State application sets emu_frame, so we're synchronized
+                    # If target_frame < emu_frame, we're ahead (shouldn't happen in server-authoritative)
+                    # But still apply to ensure we don't miss any updates
+                    elif target_frame < self.emu_frame:
+                        # Client is ahead - still apply state to catch up (shouldn't happen normally)
+                        latest_state.apply_to_game(self)
+                else:
+                    # No state available yet - wait for server
+                    # Don't simulate ahead of server to maintain synchronization
+                    # But InputDevice.update() still runs and sends inputs
+                    pass
+        else:
+            # Local mode (no network) or not connected - normal simulation
+            self.emu_frame += 1
+            for object in self.object_list:
+                object.update(self.camera_focus_point)
+            self.hitstop = self.hitstop - 1 if self.hitstop else 0
 
-        for object in self.object_list:
-            update_display_shake(object)
-        calculate_boxes_collitions(self)
-        update_display_shake(self.camera)
-        self.calculate_camera_focus_point()
+            for object in self.object_list:
+                update_display_shake(object)
+            calculate_boxes_collitions(self)
+            update_display_shake(self.camera)
+            self.calculate_camera_focus_point()
 
     def display(self, *args):
         for object in self.object_list:
@@ -377,7 +608,7 @@ model = LSTMWindowClassifier(
     dropout=0.3
 )
 if(COMPUTER_VISION):
-# Load the trained weights
+    # Load the trained weights
     model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))  # or "cuda"
     model.eval()
 
@@ -385,17 +616,27 @@ if(COMPUTER_VISION):
     # change this to change which model we are using
     predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
 
-    # Start PoseWorker
-    pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
-    pose_worker.start()
+    # Check for --no-camera or --keyboard flag
+    import sys
+    use_keyboard = "--no-camera" in sys.argv or "--keyboard" in sys.argv
 
-    # Start PoseViewer
-    pose_viewer = PoseViewer(shared_state=pose_worker)
-    game = GameObject(pose_worker=pose_worker)
+    # Initialize pose worker (don't start it yet - will be started based on player selection)
+    # Only create if not using keyboard
+    pose_worker = None if use_keyboard else PoseWorker(camera_index=0, live_predictor=predictor)
+    
+    # Start PoseViewer if pose_worker exists
+    pose_viewer = None
+    if pose_worker:
+        pose_viewer = PoseViewer(shared_state=pose_worker)
+
+    # Start game (pose worker will be started based on selection)
+    game = GameObject(pose_worker=pose_worker, use_keyboard=use_keyboard)
     game.screen_manager()
 else:
-    game = GameObject()
+    # Check for --no-camera or --keyboard flag
+    import sys
+    use_keyboard = "--no-camera" in sys.argv or "--keyboard" in sys.argv
+    
+    # Start game without pose worker
+    game = GameObject(pose_worker=None, use_keyboard=use_keyboard)
     game.screen_manager()
-
-
-# Start game

@@ -2,6 +2,7 @@ from pygame import joystick, key
 from random import uniform, choice
 from Util.Common_functions import RoundSign
 from ComputerVision.pose_worker import PoseWorker
+from Util.network_peer import NetworkPeer
 
 keyboard_mapping = (
     (79,),#right arrow 0
@@ -78,9 +79,10 @@ joystick_name_mapping = {
 }
 
 class InputDevice:
-    def __init__(self, game, team=1, index=0, mode="none", pose_worker=None):
+    def __init__(self, game, team=1, index=0, mode="none", pose_worker=None, network_peer=None):
         self.game = game
         self.pose_worker = pose_worker
+        self.network_peer = network_peer
         self.type = "input"
         self.team, self.key, self.mode = (
             team,
@@ -94,6 +96,10 @@ class InputDevice:
                 "record": self.record_mode,
                 "none": self.none_mode,
                 "random": self.random_mode,
+                "network": self.network_mode,  # Receive inputs from network
+                "network_sender": self.network_sender_mode,  # Send local inputs to network
+                "relay": self.relay_mode,  # Send local inputs AND receive from network (for relay server)
+                "random_network": self.random_network_mode,  # CPU mode: random inputs sent to network
             }[mode],
         )
         if mode == "joystick":
@@ -182,6 +188,12 @@ class InputDevice:
         if self.pose_worker is None:
             return  
         raw_input = self.pose_worker.get_latest_game_input()
+        
+        # If network_peer is available, also send inputs to network
+        # Send input for NEXT frame (lockstep synchronization)
+        if self.network_peer and self.network_peer.is_connected():
+            self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
+        
         self.get_press(raw_input)
 
     def external_mode_2(self):
@@ -242,6 +254,7 @@ class InputDevice:
             sum(keyboard[key] for key in self.key[9]),
             sum(keyboard[key] for key in self.key[10]),
         ]
+<<<<<<< HEAD
         
         combo_trail_inputs = []
         for title, keys in self.combo_trail_key_mapping.items():
@@ -252,22 +265,26 @@ class InputDevice:
                 combo_trail_inputs = [item for step in steps for item in step]
             self.last_combo_trail_state[title] = 1 if is_down else 0
 
-        self.get_press(
+        processed_input = [
             [
-                [
-                    self.raw_input[0] + self.raw_input[1] * -1, # left right
-                    self.raw_input[2] + self.raw_input[3] * -1, # up down
-                ],
-                self.raw_input[4],
-                self.raw_input[5],
-                self.raw_input[6],
-                self.raw_input[7],
-                self.raw_input[8],
-                self.raw_input[9],
-                self.raw_input[10],
+                self.raw_input[0] + self.raw_input[1] * -1, # left right
+                self.raw_input[2] + self.raw_input[3] * -1, # up down
             ],
-            extra_inputs=combo_trail_inputs,
-        )
+            self.raw_input[4],
+            self.raw_input[5],
+            self.raw_input[6],
+            self.raw_input[7],
+            self.raw_input[8],
+            self.raw_input[9],
+            self.raw_input[10],
+        ]
+        
+        # If network_peer is available, also send inputs to network
+        # Send input for NEXT frame (lockstep synchronization)
+        if self.network_peer and self.network_peer.is_connected():
+            self.network_peer.send_input(processed_input, frame=self.game.emu_frame + 1)
+        
+        self.get_press(processed_input, extra_inputs=combo_trail_inputs)
 
     def joystick_mode(self):
         self.raw_input = [
@@ -354,6 +371,7 @@ class InputDevice:
             ]
         )
 
+<<<<<<< HEAD
     def get_press(self, raw_input, extra_inputs=None, extra_commands=None):
         if extra_inputs is None:
             extra_inputs = []
@@ -372,6 +390,220 @@ class InputDevice:
         # 5 = neutral
         # 8 = up
 
+    def network_mode(self):
+        """Receive inputs from network peer - uses frame-based synchronization"""
+        if self.network_peer is None:
+            return
+        
+        # Check if connected
+        if not self.network_peer.is_connected():
+            # Not connected yet, use neutral input (11 elements: dpad + 10 buttons)
+            self.get_press([[0,0],0,0,0,0,0,0,0,0,0,0])
+            return
+        
+        # For lockstep: get input for the NEXT frame (which will be processed in gameplay())
+        # This ensures both players process the same frame with the same inputs
+        next_frame = self.game.emu_frame + 1
+        network_input = self.network_peer.get_input_for_frame(next_frame)
+        
+        # If input not available, use prediction (last known input) instead of latest input
+        # This prevents desync: using "latest" input could be from a future frame
+        # Using "prediction" (last known) maintains consistency
+        if network_input is None:
+            network_input = self.network_peer.predict_input_for_frame(next_frame)
+            
+            # If still no input (no prediction available), use neutral input
+            # This only happens at the very start before any inputs received
+            if network_input is None:
+                network_input = [[0,0],0,0,0,0,0,0,0,0,0,0]
+        
+        if network_input is not None:
+            # Ensure input has correct format (11 elements: dpad + 10 buttons)
+            if len(network_input) < 11:
+                # Pad with zeros if needed
+                padded_input = list(network_input)
+                while len(padded_input) < 11:
+                    padded_input.append(0)
+                network_input = padded_input
+            
+            # CRITICAL: Reset double-tap sequence index before processing network input
+            # This prevents false dash detection when receiving inputs over network
+            # The sequence index can get out of sync between sender and receiver
+            for idx, move in enumerate(self.sequence_commands):
+                if move["command"] == "Doble_tap_forward":
+                    # Only reset if we're partway through the sequence (not at start)
+                    # This allows legitimate double-taps to still work
+                    if self.sequence_index[idx] > 1:
+                        # Check if this input would continue the sequence legitimately
+                        expected_prev = move["sequence"][self.sequence_index[idx] - 1]
+                        expected_curr = move["sequence"][self.sequence_index[idx]]
+                        # Calculate what the transition would be
+                        prev_dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][self.last_input[0][0] * (1 if self.active_object == None else self.active_object.face)][self.last_input[0][1] - 1]
+                        curr_dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][network_input[0][0] * (1 if self.active_object == None else self.active_object.face)][network_input[0][1] - 1]
+                        transition = prev_dpad + curr_dpad
+                        # Only reset if transition doesn't match expected
+                        if transition[0] != expected_prev or curr_dpad != expected_curr:
+                            self.sequence_index[idx] = 1
+            
+            # Apply the input - get_press will handle last_input update correctly
+            self.get_press(network_input)
+        else:
+            # No input received - DON'T use neutral as fallback to prevent false transitions
+            # Instead, reuse last_input to maintain state and prevent false sequence detection
+            # Only use neutral if we don't have a last_input yet
+            if not hasattr(self, 'last_input') or self.last_input == [[0,0],0,0,0,0,0,0,0,0,0,0]:
+                self.get_press([[0,0],0,0,0,0,0,0,0,0,0,0])
+            # Otherwise, don't call get_press - this prevents false transitions
+            # The character will continue with the last known input state
+
+    def network_sender_mode(self):
+        """Send local inputs to network and use them locally"""
+        # Get local input from pose worker or keyboard
+        if self.pose_worker:
+            raw_input = self.pose_worker.get_latest_game_input()
+        else:
+            # Fallback to keyboard if no pose worker
+            keyboard = tuple(key.get_pressed())
+            self.raw_input = [
+                sum(keyboard[key] for key in self.key[0]),
+                sum(keyboard[key] for key in self.key[1]),
+                sum(keyboard[key] for key in self.key[2]),
+                sum(keyboard[key] for key in self.key[3]),
+                sum(keyboard[key] for key in self.key[4]),
+                sum(keyboard[key] for key in self.key[5]),
+                sum(keyboard[key] for key in self.key[6]),
+                sum(keyboard[key] for key in self.key[7]),
+                sum(keyboard[key] for key in self.key[8]),
+                sum(keyboard[key] for key in self.key[9]),
+                sum(keyboard[key] for key in self.key[10]),
+            ]
+            raw_input = [
+                [
+                    self.raw_input[0] + self.raw_input[1] * -1,
+                    self.raw_input[2] + self.raw_input[3] * -1,
+                ],
+                self.raw_input[4],
+                self.raw_input[5],
+                self.raw_input[6],
+                self.raw_input[7],
+                self.raw_input[8],
+                self.raw_input[9],
+                self.raw_input[10],
+            ]
+        
+        # Send to network peer
+        # Send input for NEXT frame (lockstep synchronization)
+        if self.network_peer:
+            if self.network_peer.is_connected():
+                self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
+            # If not connected, input is still used locally (will be sent once connected)
+        
+        # Use the input locally
+        self.get_press(raw_input)
+    
+    def random_network_mode(self):
+        """CPU mode: Generate random inputs and send them to network (for testing)"""
+        # Generate random inputs (same as random_mode)
+        self.rand_timer -= 1
+        if self.rand_timer <= 0:
+            self.rand_timer = uniform(*(10, 60))
+            self.raw_input = [choice([0, 1]) for _ in range(11)]
+        
+        raw_input = [
+            [
+                self.raw_input[0] + self.raw_input[1] * -1,
+                self.raw_input[2] + self.raw_input[3] * -1,
+            ],
+            self.raw_input[4],
+            self.raw_input[5],
+            self.raw_input[6],
+            self.raw_input[7],
+            self.raw_input[8],
+            self.raw_input[9],
+            self.raw_input[10],
+        ]
+        
+        # Send to network peer
+        if self.network_peer:
+            if self.network_peer.is_connected():
+                self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
+        
+        # Use the input locally
+        self.get_press(raw_input)
+
+    def relay_mode(self):
+        """Send local inputs to network AND receive from network (for relay server mode).
+        Always uses local input for this player's character, and sends it to network.
+        Also receives network input (which is used by the other player's InputDevice)."""
+        # Get local input from pose worker or keyboard
+        if self.pose_worker:
+            raw_input = self.pose_worker.get_latest_game_input()
+        else:
+            # Fallback to keyboard if no pose worker
+            keyboard = tuple(key.get_pressed())
+            self.raw_input = [
+                sum(keyboard[key] for key in self.key[0]),
+                sum(keyboard[key] for key in self.key[1]),
+                sum(keyboard[key] for key in self.key[2]),
+                sum(keyboard[key] for key in self.key[3]),
+                sum(keyboard[key] for key in self.key[4]),
+                sum(keyboard[key] for key in self.key[5]),
+                sum(keyboard[key] for key in self.key[6]),
+                sum(keyboard[key] for key in self.key[7]),
+                sum(keyboard[key] for key in self.key[8]),
+                sum(keyboard[key] for key in self.key[9]),
+                sum(keyboard[key] for key in self.key[10]),
+            ]
+            raw_input = [
+                [
+                    self.raw_input[0] + self.raw_input[1] * -1,
+                    self.raw_input[2] + self.raw_input[3] * -1,
+                ],
+                self.raw_input[4],
+                self.raw_input[5],
+                self.raw_input[6],
+                self.raw_input[7],
+                self.raw_input[8],
+                self.raw_input[9],
+                self.raw_input[10],
+            ]
+        
+        # Always send local input to network (relay server will route it to other player)
+        # Send input for NEXT frame (lockstep synchronization)
+        if self.network_peer and self.network_peer.is_connected():
+            next_frame = self.game.emu_frame + 1
+            self.network_peer.send_input(raw_input, frame=next_frame)
+            # Debug: print first few sends
+            if next_frame < 10:
+                print(f"[InputDevice] Player {self.team} sending input for frame {next_frame}: {raw_input[:2] if isinstance(raw_input, list) and len(raw_input) > 0 else raw_input}")
+        
+        # Always use local input for this player's character
+        self.get_press(raw_input)
+        
+        # Note: The received network input (from other player) is handled by the other player's InputDevice
+        # which is in "relay" mode and uses its own local input
+
+    def get_press(self, raw_input):
+        self.inter_press = 0
+        self.current_input.clear()
+
+        # Ensure last_input matches raw_input format (pad if needed)
+        if len(self.last_input) != len(raw_input):
+            # Pad last_input to match raw_input length
+            if len(self.last_input) < len(raw_input):
+                # Pad with zeros
+                padded_last = list(self.last_input)
+                while len(padded_last) < len(raw_input):
+                    padded_last.append(0)
+                self.last_input = padded_last
+            else:
+                # Truncate last_input to match raw_input
+                self.last_input = list(self.last_input[:len(raw_input)])
+                # Ensure first element is a list
+                if len(self.last_input) > 0 and not isinstance(self.last_input[0], list):
+                    self.last_input = [[0, 0]] + self.last_input[1:]
+>>>>>>> network-multiplayer
+
         # ↙↓↘←•→↖↑↗
         dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][raw_input[0][0] * (1 if self.active_object == None else self.active_object.face)][
             raw_input[0][1] - 1
@@ -386,17 +618,17 @@ class InputDevice:
         pressed_buttons = [
             "p_b" + str(ind)
             for ind in range(1, len(raw_input))
-            if (raw_input[ind] == 1 and self.last_input[ind] == 0)
+            if (ind < len(raw_input) and ind < len(self.last_input) and raw_input[ind] == 1 and self.last_input[ind] == 0)
         ]
         released_buttons = [
             "r_b" + str(ind)
             for ind in range(1, len(raw_input))
-            if (raw_input[ind] == 0 and self.last_input[ind] == 1)
+            if (ind < len(raw_input) and ind < len(self.last_input) and raw_input[ind] == 0 and self.last_input[ind] == 1)
         ]
         holded_buttons = [
             "h_b" + str(ind)
             for ind in range(1, len(raw_input))
-            if (raw_input[ind] == 1 and self.last_input[ind] == 1)
+            if (ind < len(raw_input) and ind < len(self.last_input) and raw_input[ind] == 1 and self.last_input[ind] == 1)
         ]
         
         commands = []
@@ -404,20 +636,38 @@ class InputDevice:
             commands.extend(extra_commands)
         
         for index, move in enumerate(self.sequence_commands):
-            if (
-                dpad
-                is self.sequence_commands[index]["sequence"][self.sequence_index[index]]
-                and dpad_trasition[0]
-                is self.sequence_commands[index]["sequence"][
-                    self.sequence_index[index] - 1
-                ]
-            ):
+            # Special handling for double-tap sequences to prevent false detection
+            # Double-tap requires: neutral→forward→neutral→forward
+            is_double_tap = move["command"] == "Doble_tap_forward"
+            
+            # Get expected previous state and current state for this sequence position
+            expected_prev = self.sequence_commands[index]["sequence"][self.sequence_index[index] - 1]
+            expected_curr = self.sequence_commands[index]["sequence"][self.sequence_index[index]]
+            
+            # Check if both the transition and current state match
+            transition_matches = dpad_trasition[0] == expected_prev
+            current_matches = dpad == expected_curr
+            
+            if transition_matches and current_matches:
+                # Valid transition in sequence
                 self.sequence_index[index] = self.sequence_index[index] + 1
                 if self.sequence_index[index] >= len(
                     self.sequence_commands[index]["sequence"]
                 ):
-                    self.sequence_index[index] = 1  # if move.get("press", False) else 1
+                    self.sequence_index[index] = 1  # Reset after completing sequence
                     commands.append(move["command"])
+            else:
+                # Transition doesn't match - reset sequence
+                # For double-tap, be more strict: reset if we're not at the very start
+                if is_double_tap and self.sequence_index[index] > 1:
+                    # Reset double-tap sequence if we're partway through and transition doesn't match
+                    self.sequence_index[index] = 1
+                elif self.sequence_index[index] == 1 and dpad == expected_curr:
+                    # At start of sequence and current input matches - keep waiting
+                    pass
+                else:
+                    # Reset to beginning of sequence
+                    self.sequence_index[index] = 1
 
         for index in range(1, 7):
             self.press_charge[index] = (
