@@ -51,9 +51,14 @@ class GameStateSnapshot:
     def _serialize_object(self, obj) -> Optional[Dict[str, Any]]:
         """Serialize a game object."""
         try:
+            # Get object name from dict if available (for object creation)
+            obj_dict = getattr(obj, 'dict', {})
+            obj_name = obj_dict.get('name', None)
+            
             return {
                 'type': getattr(obj, 'type', None),
                 'team': getattr(obj, 'team', None),
+                'name': obj_name,  # Store name for object creation
                 'pos': list(getattr(obj, 'pos', [0, 0, 0])),
                 'face': getattr(obj, 'face', 1),
                 'current_state': getattr(obj, 'current_state', 'Stand'),
@@ -88,6 +93,7 @@ class GameStateSnapshot:
                 'image_angle': list(getattr(obj, 'image_angle', [0, 0, 0])),
                 'image_repeat': getattr(obj, 'image_repeat', False),
                 'image_glow': getattr(obj, 'image_glow', 0),
+                'draw_textures': list(getattr(obj, 'draw_textures', [])),  # Add draw_textures
             }
         except Exception as e:
             print(f"[StateManager] Error serializing object: {e}")
@@ -129,34 +135,127 @@ class GameStateSnapshot:
             if hasattr(game, 'draw_shake'):
                 game.draw_shake = list(self.state_data['draw_shake'])
             
+            # Track which objects we've matched to handle multiple objects of same type/team
+            matched_objects = set()
+            
             # Restore object states
             for obj_state in self.state_data['objects']:
-                obj = self._find_matching_object(game, obj_state)
+                obj = self._find_matching_object(game, obj_state, matched_objects)
                 if obj:
+                    matched_objects.add(id(obj))  # Track matched objects by id
                     self._deserialize_object(obj, obj_state)
                 else:
-                    # Only warn for non-particle objects (particles are skipped intentionally)
+                    # Object not found - try to create it (especially for projectiles)
                     obj_type = obj_state.get('type')
-                    if obj_type != 'particle':
-                        print(f"[StateManager] Warning: Could not find object type={obj_type}, team={obj_state.get('team')}")
+                    obj_name = obj_state.get('name')
+                    if obj_type != 'particle' and obj_name:
+                        # Try to create missing object (projectiles, etc.)
+                        if obj_name in game.object_dict:
+                            try:
+                                from Util.Active_Objects import BaseActiveObject
+                                new_obj = BaseActiveObject(
+                                    game=game,
+                                    dict=game.object_dict[obj_name],
+                                    pos=obj_state.get('pos', [0, 0, 0]),
+                                    face=obj_state.get('face', 1),
+                                    inicial_state=obj_state.get('current_state', 'Stand'),
+                                    team=obj_state.get('team', 1),
+                                )
+                                game.object_list.append(new_obj)
+                                # Now apply the state to the newly created object
+                                self._deserialize_object(new_obj, obj_state)
+                                print(f"[StateManager] ✓ Created missing object: {obj_name} (type={obj_type}, team={obj_state.get('team')}, pos={obj_state.get('pos')})")
+                            except Exception as e:
+                                print(f"[StateManager] ✗ Failed to create object {obj_name}: {e}")
+                                import traceback
+                                traceback.print_exc()
+                        else:
+                            # Check if it's a similar name (case-insensitive or partial match)
+                            matching_names = [k for k in game.object_dict.keys() if obj_name.lower() in k.lower() or k.lower() in obj_name.lower()]
+                            if matching_names:
+                                print(f"[StateManager] Warning: Object name '{obj_name}' not found, but found similar: {matching_names}")
+                            else:
+                                print(f"[StateManager] Warning: Object name '{obj_name}' not in object_dict (type={obj_type}, team={obj_state.get('team')})")
+                                print(f"[StateManager] Available projectile names: {[k for k in list(game.object_dict.keys())[:20] if 'projectile' in str(game.object_dict[k].get('type', '')).lower()]}")
+                    elif obj_type != 'particle':
+                        print(f"[StateManager] Warning: Could not find object type={obj_type}, team={obj_state.get('team')} (no name provided)")
+            
+            # Clean up objects that exist on client but not on server (projectiles that were destroyed)
+            # Don't remove characters or stages - they should always exist
+            objects_to_remove = []
+            for obj in game.object_list:
+                if (hasattr(obj, '__class__') and 
+                    obj.__class__.__name__ == "BaseActiveObject" and
+                    hasattr(obj, 'type') and
+                    obj.type == 'projectile' and
+                    id(obj) not in matched_objects):
+                    # This projectile exists on client but not on server - remove it
+                    objects_to_remove.append(obj)
+            
+            for obj in objects_to_remove:
+                try:
+                    game.object_list.remove(obj)
+                    print(f"[StateManager] Removed projectile that no longer exists on server")
+                except:
+                    pass
         
         except Exception as e:
             print(f"[StateManager] Error applying state: {e}")
             import traceback
             traceback.print_exc()
     
-    def _find_matching_object(self, game, obj_state: Dict) -> Optional[Any]:
+    def _find_matching_object(self, game, obj_state: Dict, matched_objects: set = None) -> Optional[Any]:
         """Find matching object in game.object_list."""
+        if matched_objects is None:
+            matched_objects = set()
+        
         obj_type = obj_state.get('type')
         obj_team = obj_state.get('team')
+        obj_pos = obj_state.get('pos', [0, 0, 0])
+        obj_name = obj_state.get('name')
+        
+        # For characters and stages, match by type and team (should be unique)
+        if obj_type in ('character', 'stage'):
+            for obj in game.object_list:
+                if (id(obj) not in matched_objects and
+                    hasattr(obj, '__class__') and 
+                    obj.__class__.__name__ == "BaseActiveObject" and
+                    hasattr(obj, 'type') and hasattr(obj, 'team') and
+                    obj.type == obj_type and
+                    obj.team == obj_team):
+                    return obj
+        
+        # For projectiles and other objects, match by type, team, and position (closest match)
+        # This handles multiple projectiles of the same type/team
+        best_match = None
+        best_distance = float('inf')
         
         for obj in game.object_list:
-            if (hasattr(obj, '__class__') and 
+            if (id(obj) not in matched_objects and
+                hasattr(obj, '__class__') and 
                 obj.__class__.__name__ == "BaseActiveObject" and
                 hasattr(obj, 'type') and hasattr(obj, 'team') and
                 obj.type == obj_type and
                 obj.team == obj_team):
-                return obj
+                # Calculate distance to find closest match
+                if hasattr(obj, 'pos'):
+                    distance = ((obj.pos[0] - obj_pos[0])**2 + 
+                               (obj.pos[1] - obj_pos[1])**2)**0.5
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_match = obj
+        
+        # For projectiles, use a more lenient distance threshold (500 units)
+        # This accounts for network latency causing position differences
+        # If no match found or distance too large, return None to trigger creation
+        if obj_type == 'projectile':
+            if best_match and best_distance < 500:
+                return best_match
+        else:
+            # For other objects, use stricter threshold
+            if best_match and best_distance < 100:
+                return best_match
+        
         return None
     
     def _deserialize_object(self, obj, obj_state: Dict):
@@ -229,6 +328,12 @@ class GameStateSnapshot:
                 obj.image_repeat = obj_state['image_repeat']
             if hasattr(obj, 'image_glow') and 'image_glow' in obj_state:
                 obj.image_glow = obj_state['image_glow']
+            if hasattr(obj, 'draw_textures') and 'draw_textures' in obj_state:
+                obj.draw_textures = list(obj_state['draw_textures'])
+            # Ensure image is set (prevents X sprite fallback)
+            if hasattr(obj, 'image') and 'image' in obj_state:
+                if obj_state['image'] != 'reencor/none':
+                    obj.image = obj_state['image']
         except Exception as e:
             print(f"[StateManager] Error deserializing object: {e}")
 

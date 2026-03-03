@@ -126,6 +126,8 @@ class GameObject:
         self.port = 5555
         self.use_keyboard = use_keyboard  # If True, use keyboard instead of camera
         self.type = "game"
+        self.cpu_player1 = False  # Set via --cpu-player1 command line flag
+        self.cpu_player2 = False  # Set via --cpu-player2 command line flag
 
         mixer.pre_init(44100, -16, 1, 1024)
         init()
@@ -225,16 +227,23 @@ class GameObject:
                     
                     if player_id == 1:
                         # Player 1 (server): use relay_mode for player 1 to send local input, receive network input for player 2
-                        if self.use_keyboard:
+                        # CPU mode: if --cpu-player1, use random_network mode instead of local input
+                        if self.cpu_player1:
+                            player1_mode = "random_network"
+                            print("[Network] Player 1 set to CPU mode (random inputs)")
+                        else:
+                            player1_mode = "relay"
+                        
+                        if self.use_keyboard and not self.cpu_player1:
                             self.input_device_list = [
-                                InputDevice(self, 1, 1, "relay",
+                                InputDevice(self, 1, 1, player1_mode,
                                           network_peer=self.network_peer),
                                 InputDevice(self, 2, 2, "network",
                                           network_peer=self.network_peer)
                             ]
-                        elif self.pose_worker:
+                        elif self.pose_worker and not self.cpu_player1:
                             self.input_device_list = [
-                                InputDevice(self, 1, 1, "relay",
+                                InputDevice(self, 1, 1, player1_mode,
                                           pose_worker=self.pose_worker,
                                           network_peer=self.network_peer),
                                 InputDevice(self, 2, 2, "network",
@@ -242,31 +251,38 @@ class GameObject:
                             ]
                         else:
                             self.input_device_list = [
-                                InputDevice(self, 1, 1, "relay",
+                                InputDevice(self, 1, 1, player1_mode,
                                           network_peer=self.network_peer),
                                 InputDevice(self, 2, 2, "network",
                                           network_peer=self.network_peer)
                             ]
                     else:
                         # Player 2 (client): receive network input for player 1, use relay_mode for player 2 to send local input
+                        # CPU mode: if --cpu-player2, use random_network mode instead of local input
+                        if self.cpu_player2:
+                            player2_mode = "random_network"
+                            print("[Network] Player 2 set to CPU mode (random inputs)")
+                        else:
+                            player2_mode = "relay"
+                        
                         self.input_device_list = [
                             InputDevice(self, 1, 1, "network",
                                       network_peer=self.network_peer)
                         ]
-                        if self.use_keyboard:
+                        if self.use_keyboard and not self.cpu_player2:
                             self.input_device_list.append(
-                                InputDevice(self, 2, 2, "relay",
+                                InputDevice(self, 2, 2, player2_mode,
                                           network_peer=self.network_peer)
                             )
-                        elif self.pose_worker:
+                        elif self.pose_worker and not self.cpu_player2:
                             self.input_device_list.append(
-                                InputDevice(self, 2, 2, "relay",
+                                InputDevice(self, 2, 2, player2_mode,
                                           pose_worker=self.pose_worker,
                                           network_peer=self.network_peer)
                             )
                         else:
                             self.input_device_list.append(
-                                InputDevice(self, 2, 2, "relay",
+                                InputDevice(self, 2, 2, player2_mode,
                                           network_peer=self.network_peer)
                             )
                 elif self.is_host:
@@ -519,15 +535,18 @@ class GameObject:
                 if latest_state:
                     target_frame = latest_state.frame
                     
-                    if target_frame > self.emu_frame:
-                        # Server is ahead - apply server state
+                    # Always apply server state - server is authoritative
+                    # This ensures projectiles and all game objects are synchronized
+                    if target_frame >= self.emu_frame:
+                        # Server is at or ahead of client - apply server state
                         # This will set emu_frame to target_frame and restore all game state
                         latest_state.apply_to_game(self)
                         # State application sets emu_frame, so we're synchronized
-                    elif target_frame == self.emu_frame:
-                        # Already at this frame - apply state to ensure sync (in case of drift)
+                    # If target_frame < emu_frame, we're ahead (shouldn't happen in server-authoritative)
+                    # But still apply to ensure we don't miss any updates
+                    elif target_frame < self.emu_frame:
+                        # Client is ahead - still apply state to catch up (shouldn't happen normally)
                         latest_state.apply_to_game(self)
-                    # If target_frame < emu_frame, we're ahead (shouldn't happen, but ignore)
                 else:
                     # No state available yet - wait for server
                     # Don't simulate ahead of server to maintain synchronization

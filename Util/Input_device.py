@@ -68,6 +68,7 @@ class InputDevice:
                 "network": self.network_mode,  # Receive inputs from network
                 "network_sender": self.network_sender_mode,  # Send local inputs to network
                 "relay": self.relay_mode,  # Send local inputs AND receive from network (for relay server)
+                "random_network": self.random_network_mode,  # CPU mode: random inputs sent to network
             }[mode],
         )
         if mode == "joystick":
@@ -365,6 +366,36 @@ class InputDevice:
             if self.network_peer.is_connected():
                 self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
             # If not connected, input is still used locally (will be sent once connected)
+        
+        # Use the input locally
+        self.get_press(raw_input)
+    
+    def random_network_mode(self):
+        """CPU mode: Generate random inputs and send them to network (for testing)"""
+        # Generate random inputs (same as random_mode)
+        self.rand_timer -= 1
+        if self.rand_timer <= 0:
+            self.rand_timer = uniform(*(10, 60))
+            self.raw_input = [choice([0, 1]) for _ in range(11)]
+        
+        raw_input = [
+            [
+                self.raw_input[0] + self.raw_input[1] * -1,
+                self.raw_input[2] + self.raw_input[3] * -1,
+            ],
+            self.raw_input[4],
+            self.raw_input[5],
+            self.raw_input[6],
+            self.raw_input[7],
+            self.raw_input[8],
+            self.raw_input[9],
+            self.raw_input[10],
+        ]
+        
+        # Send to network peer
+        if self.network_peer:
+            if self.network_peer.is_connected():
+                self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
         
         # Use the input locally
         self.get_press(raw_input)

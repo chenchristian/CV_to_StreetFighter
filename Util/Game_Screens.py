@@ -166,6 +166,13 @@ class PlayerSelectionScreen:
             # In a full implementation, you'd have a network setup screen
             import sys
             
+            # Check for CPU player flags
+            cpu_player1 = "--cpu-player1" in sys.argv
+            cpu_player2 = "--cpu-player2" in sys.argv
+            # Store in game object so Input_device_available() can access them
+            self.game.cpu_player1 = cpu_player1
+            self.game.cpu_player2 = cpu_player2
+            
             # Check for relay mode first
             relay_mode = "--relay" in sys.argv
             relay_server_ip = None
