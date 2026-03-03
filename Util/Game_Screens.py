@@ -307,6 +307,21 @@ class PlayerSelectionScreen:
                         # Reset frame counter to ensure both players start at frame 0
                         self.game.emu_frame = 0
                         print(f"[Network] Reset frame counter to 0 for synchronization")
+                        
+                        # Initialize desync detector and state manager
+                        try:
+                            from Util.desync_detector import DesyncDetector
+                            from Util.state_manager import StateManager
+                            
+                            self.game.desync_detector = DesyncDetector(check_interval=60)  # Check every 1 second
+                            self.game.state_manager = StateManager(max_history=120)  # Keep 2 seconds of history
+                            print("[Network] Desync detection and rollback recovery enabled")
+                        except Exception as e:
+                            print(f"[Network] Failed to initialize desync detector/state manager: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            self.game.desync_detector = None
+                            self.game.state_manager = None
                     else:
                         print("[Network] ⚠️  WARNING: Both players not ready, but proceeding anyway")
             else:

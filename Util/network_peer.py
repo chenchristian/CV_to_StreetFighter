@@ -119,6 +119,9 @@ class NetworkPeer:
         # Both players ready flag (for relay mode)
         self.both_players_ready: bool = False
         
+        # Desync detection: received checksums from opponent
+        self.received_checksums = {}  # {frame: checksum}
+        
         # Connection callback
         self.on_connected: Optional[Callable] = None
         self.on_disconnected: Optional[Callable] = None
@@ -690,6 +693,15 @@ class NetworkPeer:
                                 if len(self.input_buffer) > self.max_buffer_size:
                                     min_frame = min(self.input_buffer.keys())
                                     del self.input_buffer[min_frame]
+                            
+                            elif message.get("type") == "state_checksum":
+                                # Receive state checksum from opponent for desync detection
+                                frame = message.get("frame", 0)
+                                checksum = message.get("checksum", "")
+                                # Store for desync detector (will be accessed by game object)
+                                if not hasattr(self, 'received_checksums'):
+                                    self.received_checksums = {}
+                                self.received_checksums[frame] = checksum
                             
                             elif message.get("type") == "ping":
                                 # Respond to ping

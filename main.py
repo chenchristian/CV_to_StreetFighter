@@ -173,6 +173,10 @@ class GameObject:
         # Will be reconfigured after player selection
         self.input_device_list = [InputDevice(self, 1, 1, "keyboard")]
         self.dummy_input_device = dummy_input
+        
+        # Desync detection and state management (for network mode)
+        self.desync_detector = None
+        self.state_manager = None
 
         self.screen_sequence = [
             PlayerSelectionScreen,  # Start with player selection
@@ -497,6 +501,66 @@ class GameObject:
             
             # If input still not available, InputDevice will use prediction (last known input)
             # This prevents desync and keeps game running smoothly
+            
+            # State management: save state periodically (before frame increment)
+            if self.state_manager:
+                # Save state snapshot before simulating next frame
+                if self.state_manager.should_save_state(self.emu_frame):
+                    self.state_manager.save_state(self, self.emu_frame)
+                
+                # Capture inputs that will be used for next frame (frame N+1)
+                # Inputs are already processed by InputDevice.update() before gameplay() is called
+                # We need to get the raw_input that was sent to network (for frame N+1)
+                player1_input = None
+                player2_input = None
+                
+                # For relay mode: player 1 uses local input, player 2 receives network input
+                # We need to reconstruct what inputs were actually used
+                if len(self.input_device_list) > 0:
+                    dev1 = self.input_device_list[0]
+                    # Get the input that was processed (last_input after get_press)
+                    if hasattr(dev1, 'last_input') and dev1.last_input:
+                        # Deep copy to avoid reference issues
+                        import copy
+                        player1_input = copy.deepcopy(dev1.last_input)
+                
+                if len(self.input_device_list) > 1:
+                    dev2 = self.input_device_list[1]
+                    if hasattr(dev2, 'last_input') and dev2.last_input:
+                        import copy
+                        player2_input = copy.deepcopy(dev2.last_input)
+                
+                # Use neutral input if not available
+                if player1_input is None:
+                    player1_input = [[0,0],0,0,0,0,0,0,0,0,0,0]
+                if player2_input is None:
+                    player2_input = [[0,0],0,0,0,0,0,0,0,0,0,0]
+                
+                # Save inputs for the frame we're about to simulate (N+1)
+                next_frame = self.emu_frame + 1
+                self.state_manager.save_inputs(next_frame, player1_input, player2_input)
+            
+            # Desync detection: check periodically
+            if self.desync_detector and self.desync_detector.should_check(self.emu_frame):
+                is_desynced, desync_frame = self.desync_detector.check_desync(self, self.network_peer)
+                if is_desynced:
+                    # Desync detected - attempt full rollback recovery
+                    recovery_frame = self.desync_detector.get_recovery_frame()
+                    print(f"[DesyncDetector] ⚠️  DESYNC DETECTED at frame {desync_frame} - Attempting rollback recovery to frame {recovery_frame}")
+                    
+                    if self.state_manager:
+                        # Perform full rollback
+                        success = self.state_manager.rollback_to_frame(self, recovery_frame)
+                        if success:
+                            print(f"[DesyncDetector] ✓ Rollback successful - game state restored to frame {recovery_frame}")
+                            self.desync_detector.last_synced_frame = recovery_frame
+                            self.desync_detector.desync_detected = False
+                            # After rollback, we need to re-simulate from recovery_frame to current_frame
+                            # This is handled by rollback_to_frame's _resimulate_frames
+                        else:
+                            print(f"[DesyncDetector] ✗ Rollback failed - no state snapshot available")
+                    else:
+                        print(f"[DesyncDetector] ✗ Rollback failed - state manager not initialized")
         
         self.emu_frame += 1
         for object in self.object_list:
