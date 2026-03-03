@@ -364,7 +364,6 @@ class GameObject:
                     self.input_device_list.append(
                         InputDevice(self, 2, 2, "none")
                     )
->>>>>>> network-multiplayer
 
     def next_screen(self, screen_sequence: list = [TitleScreen]):
         self.active = False
