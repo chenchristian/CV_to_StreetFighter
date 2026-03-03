@@ -140,7 +140,13 @@ class PlayerSelectionScreen:
         # Start appropriate pose workers based on selection
         if self.game.num_players == 1:
             # Single player: use regular pose worker
-            if self.game.pose_worker:
+            # Camera should only activate when no keyboard or CPU toggle is active
+            should_start_camera = (self.game.pose_worker and 
+                                  not self.game.use_keyboard and 
+                                  not self.game.cpu_player1 and 
+                                  not self.game.cpu_player2)
+            
+            if should_start_camera:
                 self.game.pose_worker.start()
                 # Set up pose viewer for single player
                 try:
@@ -148,6 +154,14 @@ class PlayerSelectionScreen:
                     self.game.pose_viewer = PoseViewer(shared_state=self.game.pose_worker)
                 except:
                     self.game.pose_viewer = None
+            else:
+                self.game.pose_viewer = None
+                # Stop pose worker if it was started but shouldn't be running
+                if self.game.pose_worker and (self.game.use_keyboard or self.game.cpu_player1 or self.game.cpu_player2):
+                    try:
+                        self.game.pose_worker.stop()
+                    except:
+                        pass
             
             # Reinitialize input devices
             self.game.Input_device_available()
@@ -390,8 +404,14 @@ class PlayerSelectionScreen:
                 print("[Network] Make sure the other player is running with --client (or --host)")
                 print("[Network] Game will continue but network features won't work")
             
-            # Start pose worker only if not using keyboard
-            if self.game.pose_worker and not self.game.use_keyboard:
+            # Start pose worker only if not using keyboard and not CPU mode
+            # Camera should only activate when no keyboard or CPU toggle is active
+            should_start_camera = (self.game.pose_worker and 
+                                  not self.game.use_keyboard and 
+                                  not self.game.cpu_player1 and 
+                                  not self.game.cpu_player2)
+            
+            if should_start_camera:
                 self.game.pose_worker.start()
                 try:
                     from ComputerVision.pose_viewer import PoseViewer
@@ -400,6 +420,12 @@ class PlayerSelectionScreen:
                     self.game.pose_viewer = None
             else:
                 self.game.pose_viewer = None
+                # Stop pose worker if it was started but shouldn't be running
+                if self.game.pose_worker and (self.game.use_keyboard or self.game.cpu_player1 or self.game.cpu_player2):
+                    try:
+                        self.game.pose_worker.stop()
+                    except:
+                        pass
         
         # Reinitialize input devices with the selected setup
         self.game.Input_device_available()

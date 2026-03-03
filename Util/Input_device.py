@@ -537,9 +537,14 @@ class InputDevice:
         ]
         
         # Send to network peer
+        # Use a local frame counter to prevent getting stuck when emu_frame doesn't advance (client waiting for server state)
+        if not hasattr(self, '_cpu_frame_counter'):
+            self._cpu_frame_counter = 0
+        self._cpu_frame_counter += 1
+        
         if self.network_peer:
             if self.network_peer.is_connected():
-                self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
+                self.network_peer.send_input(raw_input, frame=self._cpu_frame_counter)
         
         # Use the input locally
         self.get_press(raw_input)

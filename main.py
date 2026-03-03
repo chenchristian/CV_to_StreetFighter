@@ -246,14 +246,22 @@ class GameObject:
                         else:
                             player1_mode = "relay"
                         
-                        if self.use_keyboard and not self.cpu_player1:
+                        # CPU mode always uses random_network mode (no keyboard/camera needed)
+                        if self.cpu_player1:
+                            self.input_device_list = [
+                                InputDevice(self, 1, 1, "random_network",
+                                          network_peer=self.network_peer),
+                                InputDevice(self, 2, 2, "network",
+                                          network_peer=self.network_peer)
+                            ]
+                        elif self.use_keyboard:
                             self.input_device_list = [
                                 InputDevice(self, 1, 1, player1_mode,
                                           network_peer=self.network_peer),
                                 InputDevice(self, 2, 2, "network",
                                           network_peer=self.network_peer)
                             ]
-                        elif self.pose_worker and not self.cpu_player1:
+                        elif self.pose_worker:
                             self.input_device_list = [
                                 InputDevice(self, 1, 1, player1_mode,
                                           pose_worker=self.pose_worker,
@@ -262,6 +270,7 @@ class GameObject:
                                           network_peer=self.network_peer)
                             ]
                         else:
+                            # Fallback to keyboard
                             self.input_device_list = [
                                 InputDevice(self, 1, 1, player1_mode,
                                           network_peer=self.network_peer),
@@ -281,18 +290,25 @@ class GameObject:
                             InputDevice(self, 1, 1, "network",
                                       network_peer=self.network_peer)
                         ]
-                        if self.use_keyboard and not self.cpu_player2:
+                        # CPU mode always uses random_network mode (no keyboard/camera needed)
+                        if self.cpu_player2:
+                            self.input_device_list.append(
+                                InputDevice(self, 2, 2, "random_network",
+                                          network_peer=self.network_peer)
+                            )
+                        elif self.use_keyboard:
                             self.input_device_list.append(
                                 InputDevice(self, 2, 2, player2_mode,
                                           network_peer=self.network_peer)
                             )
-                        elif self.pose_worker and not self.cpu_player2:
+                        elif self.pose_worker:
                             self.input_device_list.append(
                                 InputDevice(self, 2, 2, player2_mode,
                                           pose_worker=self.pose_worker,
                                           network_peer=self.network_peer)
                             )
                         else:
+                            # Fallback to keyboard
                             self.input_device_list.append(
                                 InputDevice(self, 2, 2, player2_mode,
                                           network_peer=self.network_peer)
