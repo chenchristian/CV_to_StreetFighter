@@ -87,6 +87,7 @@ class InputDevice:
             keyboard_mapping,
             {
                 "external": self.external_mode, #using our AI
+                "external_2": self.external_mode_2,
                 "keyboard": self.keyboard_mode,
                 "joystick": self.joystick_mode,
                 "AI": self.AI_mode,
@@ -182,6 +183,48 @@ class InputDevice:
             return  
         raw_input = self.pose_worker.get_latest_game_input()
         self.get_press(raw_input)
+
+    def external_mode_2(self):
+        keyboard = self.pose_worker.get_latest_model_output()
+        self.raw_input = [
+            sum(keyboard[key] for key in self.key[0]),
+            sum(keyboard[key] for key in self.key[1]),
+            sum(keyboard[key] for key in self.key[2]),
+            sum(keyboard[key] for key in self.key[3]),
+            sum(keyboard[key] for key in self.key[4]),
+            sum(keyboard[key] for key in self.key[5]),
+            sum(keyboard[key] for key in self.key[6]),
+            sum(keyboard[key] for key in self.key[7]),
+            sum(keyboard[key] for key in self.key[8]),
+            sum(keyboard[key] for key in self.key[9]),
+            sum(keyboard[key] for key in self.key[10]),
+        ]
+        
+        combo_trail_inputs = []
+        for title, keys in self.combo_trail_key_mapping.items():
+            is_down = sum(keyboard[key] for key in keys) > 0
+            was_down = self.last_combo_trail_state.get(title, 0)
+            if is_down and not was_down:
+                steps = self.combo_trail_macros.get(title, [])
+                combo_trail_inputs = [item for step in steps for item in step]
+            self.last_combo_trail_state[title] = 1 if is_down else 0
+
+        self.get_press(
+            [
+                [
+                    self.raw_input[0] + self.raw_input[1] * -1, # left right
+                    self.raw_input[2] + self.raw_input[3] * -1, # up down
+                ],
+                self.raw_input[4],
+                self.raw_input[5],
+                self.raw_input[6],
+                self.raw_input[7],
+                self.raw_input[8],
+                self.raw_input[9],
+                self.raw_input[10],
+            ],
+            extra_inputs=combo_trail_inputs,
+        )
 
         
     def keyboard_mode(self):

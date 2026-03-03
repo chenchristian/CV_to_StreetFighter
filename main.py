@@ -177,16 +177,25 @@ class GameObject:
         self.active_stages = None
 
     def Input_device_available(self):
-        keyboard_conut = 1
+        self.input_device_list = []  # start fresh
+
+        #Computer vision device first (if enabled)
+        if COMPUTER_VISION:
+            self.input_device_list.append(InputDevice(
+                self, 1, 1, "external_2", pose_worker=self.pose_worker
+            ))
+
+        #Keyboards
+        keyboard_count = 1
+        for i in range(keyboard_count):
+            self.input_device_list.append(InputDevice(self, 1, i, "keyboard"))
+
+        #Joysticks
         joystick_count = joystick.get_count()
-        for i in range(keyboard_conut):
-            self.input_device_list = [InputDevice(self, 1, 1, "keyboard")]
         for i in range(joystick_count):
             self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
         
-        #changes to red guy for some reason
-        if(COMPUTER_VISION):
-            self.input_device_list.append(InputDevice(self, 1, 1, "external",pose_worker = self.pose_worker))
+       
 
     def next_screen(self, screen_sequence: list = [TitleScreen]):
         self.active = False
@@ -354,6 +363,8 @@ import torch
 import pickle
 from ComputerVision.pose_worker import PoseWorker
 from ComputerVision.pose_viewer import PoseViewer
+
+#change this to change which model we are using
 from Models.LSTM_v1.lstm_live_predictions import LivePosePredictor
 from Models.LSTM_v1.lstm_model import LSTMWindowClassifier
 
@@ -374,6 +385,7 @@ if(COMPUTER_VISION):
     model.eval()
 
     # Create predictor
+    # change this to change which model we are using
     predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
 
     # Start PoseWorker

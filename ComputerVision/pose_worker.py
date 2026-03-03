@@ -5,13 +5,16 @@ import time
 import cv2 as cv
 import mediapipe as mp
 import numpy as np
+import pygame
+
+
 
 class PoseWorker:
     def __init__(self,
                  camera_index=0,
                  width=640,
                  height=480,
-                 movement_threshold=0.02,
+                 movement_threshold=0.01,
                  movement_edge_threshold = 0.15,
                  subscriber_queue_maxsize=2,
                  live_predictor=None): 
@@ -88,6 +91,13 @@ class PoseWorker:
         if not snap:
             return [[0,0],0,0,0,0,0,0,0,0]
         return snap.get("game_input", [[0,0],0,0,0,0,0,0,0,0])
+    
+    def get_latest_model_output(self):
+        snap = self.get_latest_snapshot()
+        EMPTY_KEYBOARD = tuple([0] * 512)
+        if not snap:
+            return EMPTY_KEYBOARD
+        return snap.get("game_input", tuple([0] * 512))
 
     # --- internal runner ------------------------------------------------
     def _run(self):
@@ -118,9 +128,8 @@ class PoseWorker:
                 vector = np.zeros((33 - len(self.remove_indices)) * 4, dtype=np.float32)
                 landmarks_for_drawing = []
                 movement_info = {"direction": "NO POSE", "x_diff": 0.0, "center_x": None}
-                left_right_up_down = [[0,0]]
-                attacks = [0,0,0,0,0,0,0,0]
                 timestamp = time.time()
+                left_right_up_down = None
 
                 if results.pose_landmarks:
                     lms = results.pose_landmarks.landmark
@@ -140,29 +149,37 @@ class PoseWorker:
                         center_x = float(np.mean(visible_x_coords))
                         if prev_center_x is None:
                             x_diff = 0.0
-                            movement = "STATIONARY"
-                            left_right_up_down = [[0,0]]
+                            movement = "Stationary"
+                            left_right_up_down = None
                         else:
                             x_diff = center_x - prev_center_x
                             
                             # Check if at screen edges (85% threshold)
                             if center_x >= 1- self.movement_edge_threshold:
                                 # At right edge, force movement right
+                                K_RIGHT = 79
                                 movement = "MOVING RIGHT"
-                                left_right_up_down = [[1,0]]
+                                left_right_up_down = K_RIGHT
                             elif center_x <= self.movement_edge_threshold:
                                 # At left edge, force movement left
+                                K_LEFT  = 80
                                 movement = "MOVING LEFT"
-                                left_right_up_down = [[-1,0]]
+                                left_right_up_down = K_LEFT
                             elif x_diff > self.movement_threshold:
+                                K_RIGHT = 79
                                 movement = "MOVING RIGHT"
-                                left_right_up_down = [[1,0]]
+                                left_right_up_down = K_RIGHT
                             elif x_diff < -self.movement_threshold:
+                                K_LEFT  = 80
                                 movement = "MOVING LEFT"
-                                left_right_up_down = [[-1,0]]
+                                left_right_up_down = K_LEFT
                             else:
-                                movement = "STATIONARY"
-                                left_right_up_down = [[0,0]]
+                                prev_center_x = None
+                                movement_info["direction"] = "NO POSE"
+                                movement_info["x_diff"] = 0.0
+                                movement_info["center_x"] = None
+                                left_right_up_down = None
+                                
 
                         movement_info["direction"] = movement
                         movement_info["x_diff"] = x_diff
@@ -174,6 +191,23 @@ class PoseWorker:
                         movement_info["x_diff"] = 0.0
                         movement_info["center_x"] = None
 
+                ACTION_KEY_MAP = {
+                    "idle": None,
+                    "jab": 4,                     # a
+                    "cross": 22,                  # s
+                    "lead_hook": 7,               # d
+                    "rear_hook": 19,              # p
+                    "uppercut": 18,               # o
+                    "jumping_cross": 27,          # x
+                    "rear_low_kick": 20,          # q
+                    "side_kick": 26,              # w
+                    "spinning_back_high_kick": 8, # e
+                    "crouching_low_sweep": 13,    # j
+                    "grab": 12,                   # i
+                    "hadouken": 24,               # u
+                    "shoryuken": 14,              # k
+                }
+
                 # --- Live prediction ---
                 pred_label, probabilities = None, None
                 if self.live_predictor is not None:
@@ -182,15 +216,21 @@ class PoseWorker:
                         pred_label, probabilities = res 
                     else:
                         pred_label, probabilities = "WARMING UP", None
+
                 
-                
-                # --- Prediction into Game inputs
-                if pred_label == "punch":
-                    attacks[3] = 1
-                elif pred_label == "kick":
-                    attacks[0] = 1
-                    
-                game_input = left_right_up_down + attacks
+                get_pressed_length = 512
+                keyboard = [0] * get_pressed_length
+
+                # Movement key
+                if left_right_up_down is not None:
+                    keyboard[left_right_up_down] = 1
+
+                # Attack key
+                attack_key = ACTION_KEY_MAP.get(pred_label)
+                if attack_key is not None:
+                    keyboard[attack_key] = 1
+
+                game_input = tuple(keyboard)
 
                 # --- build snapshot ---
                 snapshot = {
