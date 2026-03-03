@@ -473,5 +473,5 @@ class InputDevice:
                     )
                     turn += 1
 
-
-dummy_input = InputDevice(None, 0, 0, "none")
+#change none to random 
+dummy_input = InputDevice(None, 0, 0, "random")

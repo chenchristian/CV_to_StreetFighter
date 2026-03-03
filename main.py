@@ -177,25 +177,22 @@ class GameObject:
         self.active_stages = None
 
     def Input_device_available(self):
-        self.input_device_list = []  # start fresh
+        self.input_device_list = []
 
-        #Computer vision device first (if enabled)
+        # computer vision first
         if COMPUTER_VISION:
-            self.input_device_list.append(InputDevice(
-                self, 1, 1, "external_2", pose_worker=self.pose_worker
-            ))
+            self.input_device_list.append(
+                InputDevice(self, 1, 1, "external_2", pose_worker=self.pose_worker)
+            )
+        else:
+            keyboard_count = 1
+            for i in range(keyboard_count):
+                self.input_device_list.append(InputDevice(self, 1, i, "keyboard"))
 
-        #Keyboards
-        keyboard_count = 1
-        for i in range(keyboard_count):
-            self.input_device_list.append(InputDevice(self, 1, i, "keyboard"))
-
-        #Joysticks
+        # joysticks
         joystick_count = joystick.get_count()
         for i in range(joystick_count):
             self.input_device_list.append(InputDevice(self, 2, i, "joystick"))
-        
-       
 
     def next_screen(self, screen_sequence: list = [TitleScreen]):
         self.active = False
