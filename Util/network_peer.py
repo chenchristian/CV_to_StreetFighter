@@ -9,7 +9,7 @@ import pickle
 import struct
 import select
 import time
-from typing import Optional, Callable, Tuple, Dict
+from typing import Optional, Callable, Tuple, Dict, Any
 
 def test_port_connectivity(host: str, port: int, timeout: float = 2.0) -> Tuple[bool, str]:
     """
@@ -121,6 +121,16 @@ class NetworkPeer:
         
         # Desync detection: received checksums from opponent
         self.received_checksums = {}  # {frame: checksum}
+        
+        # Server-authoritative mode: Player 1 is server, Player 2 is client
+        self.is_server = False  # Will be set based on player_id
+        self.is_client = False  # Will be set based on player_id
+        
+        # Server-authoritative: received game states from server
+        self.received_states = {}  # {frame: GameStateSnapshot}
+        self.last_received_state_frame = -1
+        self.state_send_interval = 1  # Send state every frame (16.67ms at 60fps) for lower latency
+        self.last_state_sent_frame = -1
         
         # Connection callback
         self.on_connected: Optional[Callable] = None
@@ -630,7 +640,11 @@ class NetworkPeer:
                             if message.get("type") == "player_assigned":
                                 # Receive player ID from relay server
                                 self.player_id = message.get("player_id")
+                                # Set server/client mode: Player 1 is server, Player 2 is client
+                                self.is_server = (self.player_id == 1)
+                                self.is_client = (self.player_id == 2)
                                 print(f"[Network] Assigned Player ID: {self.player_id}")
+                                print(f"[Network] Mode: {'SERVER (authoritative)' if self.is_server else 'CLIENT (receives state)'}")
                                 if self.on_connected:
                                     self.on_connected()
                             
@@ -702,6 +716,28 @@ class NetworkPeer:
                                 if not hasattr(self, 'received_checksums'):
                                     self.received_checksums = {}
                                 self.received_checksums[frame] = checksum
+                            
+                            elif message.get("type") == "game_state":
+                                # Receive game state from server (server-authoritative mode)
+                                frame = message.get("frame", 0)
+                                state_data = message.get("state_data")
+                                checksum = message.get("checksum", "")
+                                
+                                # Create GameStateSnapshot from received data
+                                from Util.state_manager import GameStateSnapshot
+                                snapshot = GameStateSnapshot.__new__(GameStateSnapshot)
+                                snapshot.frame = frame
+                                snapshot.state_data = state_data
+                                snapshot.checksum = checksum
+                                
+                                # Store received state
+                                self.received_states[frame] = snapshot
+                                self.last_received_state_frame = max(self.last_received_state_frame, frame)
+                                
+                                # Clean up old states (keep last 120 frames = 2 seconds)
+                                if len(self.received_states) > 120:
+                                    oldest = min(self.received_states.keys())
+                                    del self.received_states[oldest]
                             
                             elif message.get("type") == "ping":
                                 # Respond to ping
@@ -896,6 +932,62 @@ class NetworkPeer:
             self.send_queue.put_nowait(message)
         except queue.Full:
             pass
+    
+    def send_game_state(self, game, frame: int):
+        """
+        Server: Send game state snapshot to clients.
+        Only called by server (Player 1).
+        """
+        if not self.is_server or not self.connected:
+            return
+        
+        # Check if we should send state (every N frames)
+        if (frame - self.last_state_sent_frame) < self.state_send_interval:
+            return
+        
+        try:
+            from Util.state_manager import GameStateSnapshot
+            snapshot = GameStateSnapshot(game, frame)
+            
+            message = {
+                "type": "game_state",
+                "frame": frame,
+                "state_data": snapshot.state_data,
+                "checksum": snapshot.checksum
+            }
+            
+            self.send_message(message)
+            self.last_state_sent_frame = frame
+        except Exception as e:
+            print(f"[Network] Error sending game state: {e}")
+    
+    def get_latest_state(self) -> Optional[Any]:
+        """
+        Client: Get the latest received game state from server.
+        Returns None if no state available.
+        """
+        if not self.is_client or not self.received_states:
+            return None
+        
+        # Get the most recent state
+        latest_frame = max(self.received_states.keys())
+        return self.received_states[latest_frame]
+    
+    def get_state_for_frame(self, frame: int) -> Optional[Any]:
+        """
+        Client: Get state for a specific frame.
+        Returns nearest state at or before the frame.
+        """
+        if not self.is_client or not self.received_states:
+            return None
+        
+        # Find nearest state at or before frame
+        candidates = [f for f in self.received_states.keys() if f <= frame]
+        if candidates:
+            nearest_frame = max(candidates)
+            return self.received_states[nearest_frame]
+        
+        return None
     
     def is_connected(self) -> bool:
         """Check if connected to the other peer."""

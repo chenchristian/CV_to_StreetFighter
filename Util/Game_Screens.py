@@ -266,6 +266,44 @@ class PlayerSelectionScreen:
             
             if self.game.network_peer.is_connected():
                 print("[Network] ✓ Connection established, starting game")
+                # Set server/client mode for direct P2P mode (not relay)
+                if not relay_mode:
+                    # In direct P2P: host is server (Player 1), client is client (Player 2)
+                    self.game.network_peer.is_server = self.game.is_host
+                    self.game.network_peer.is_client = not self.game.is_host
+                    # Set player_id for consistency (host = Player 1, client = Player 2)
+                    self.game.network_peer.player_id = 1 if self.game.is_host else 2
+                    print(f"[Network] Direct P2P mode: {'SERVER (Player 1)' if self.game.is_host else 'CLIENT (Player 2)'}")
+                    
+                    # Initialize state manager for server-authoritative mode
+                    try:
+                        from Util.state_manager import StateManager
+                        self.game.state_manager = StateManager(max_history=120)  # Keep 2 seconds of history
+                        self.game.desync_detector = None  # Not needed with server-authoritative mode
+                        print("[Network] Server-authoritative mode: State manager initialized")
+                    except Exception as e:
+                        print(f"[Network] Failed to initialize state manager: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        self.game.desync_detector = None
+                        self.game.state_manager = None
+                    
+                    # Set deterministic random seed for synchronized gameplay
+                    import random
+                    sync_seed = 42  # Fixed seed for deterministic behavior
+                    random.seed(sync_seed)
+                    self.game.network_seed = sync_seed
+                    # Also seed numpy random if used
+                    try:
+                        import numpy as np
+                        np.random.seed(sync_seed)
+                    except:
+                        pass
+                    print(f"[Network] Set random seed to {sync_seed} for deterministic gameplay")
+                    # Reset frame counter to ensure both players start at frame 0
+                    self.game.emu_frame = 0
+                    print(f"[Network] Reset frame counter to 0 for synchronization")
+                
                 # Wait for player ID assignment in relay mode
                 if relay_mode:
                     print("[Network] Waiting for player ID assignment from relay server...")
@@ -275,9 +313,14 @@ class PlayerSelectionScreen:
                         wait_count += 1
                     if self.game.network_peer.player_id:
                         print(f"[Network] ✓ Assigned as Player {self.game.network_peer.player_id}")
+                        # Set server/client mode
+                        self.game.network_peer.is_server = (self.game.network_peer.player_id == 1)
+                        self.game.network_peer.is_client = (self.game.network_peer.player_id == 2)
                     else:
                         print("[Network] ⚠️  WARNING: Player ID not assigned, defaulting to Player 1")
                         self.game.network_peer.player_id = 1
+                        self.game.network_peer.is_server = True
+                        self.game.network_peer.is_client = False
                     
                     # Wait for both players to be ready
                     print("[Network] Waiting for both players to connect...")
@@ -309,15 +352,15 @@ class PlayerSelectionScreen:
                         print(f"[Network] Reset frame counter to 0 for synchronization")
                         
                         # Initialize desync detector and state manager
+                        # Initialize state manager for server-authoritative mode
+                        # Server uses it to create state snapshots
                         try:
-                            from Util.desync_detector import DesyncDetector
                             from Util.state_manager import StateManager
-                            
-                            self.game.desync_detector = DesyncDetector(check_interval=60)  # Check every 1 second
                             self.game.state_manager = StateManager(max_history=120)  # Keep 2 seconds of history
-                            print("[Network] Desync detection and rollback recovery enabled")
+                            self.game.desync_detector = None  # Not needed with server-authoritative mode
+                            print("[Network] Server-authoritative mode: State manager initialized")
                         except Exception as e:
-                            print(f"[Network] Failed to initialize desync detector/state manager: {e}")
+                            print(f"[Network] Failed to initialize state manager: {e}")
                             import traceback
                             traceback.print_exc()
                             self.game.desync_detector = None

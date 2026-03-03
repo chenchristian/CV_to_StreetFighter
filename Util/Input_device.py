@@ -167,8 +167,9 @@ class InputDevice:
         ]
         
         # If network_peer is available, also send inputs to network
+        # Send input for NEXT frame (lockstep synchronization)
         if self.network_peer and self.network_peer.is_connected():
-            self.network_peer.send_input(processed_input, frame=self.game.emu_frame)
+            self.network_peer.send_input(processed_input, frame=self.game.emu_frame + 1)
         
         self.get_press(processed_input)
 
@@ -408,7 +409,11 @@ class InputDevice:
         # Always send local input to network (relay server will route it to other player)
         # Send input for NEXT frame (lockstep synchronization)
         if self.network_peer and self.network_peer.is_connected():
-            self.network_peer.send_input(raw_input, frame=self.game.emu_frame + 1)
+            next_frame = self.game.emu_frame + 1
+            self.network_peer.send_input(raw_input, frame=next_frame)
+            # Debug: print first few sends
+            if next_frame < 10:
+                print(f"[InputDevice] Player {self.team} sending input for frame {next_frame}: {raw_input[:2] if isinstance(raw_input, list) and len(raw_input) > 0 else raw_input}")
         
         # Always use local input for this player's character
         self.get_press(raw_input)

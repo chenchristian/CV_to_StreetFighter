@@ -224,17 +224,17 @@ class GameObject:
                     player_id = self.network_peer.player_id if self.network_peer and self.network_peer.player_id else 1
                     
                     if player_id == 1:
-                        # Player 1: use local input for player 1, receive network input for player 2
+                        # Player 1 (server): use relay_mode for player 1 to send local input, receive network input for player 2
                         if self.use_keyboard:
                             self.input_device_list = [
-                                InputDevice(self, 1, 1, "keyboard",
+                                InputDevice(self, 1, 1, "relay",
                                           network_peer=self.network_peer),
                                 InputDevice(self, 2, 2, "network",
                                           network_peer=self.network_peer)
                             ]
                         elif self.pose_worker:
                             self.input_device_list = [
-                                InputDevice(self, 1, 1, "external",
+                                InputDevice(self, 1, 1, "relay",
                                           pose_worker=self.pose_worker,
                                           network_peer=self.network_peer),
                                 InputDevice(self, 2, 2, "network",
@@ -242,31 +242,31 @@ class GameObject:
                             ]
                         else:
                             self.input_device_list = [
-                                InputDevice(self, 1, 1, "keyboard",
+                                InputDevice(self, 1, 1, "relay",
                                           network_peer=self.network_peer),
                                 InputDevice(self, 2, 2, "network",
                                           network_peer=self.network_peer)
                             ]
                     else:
-                        # Player 2: receive network input for player 1, use local input for player 2
+                        # Player 2 (client): receive network input for player 1, use relay_mode for player 2 to send local input
                         self.input_device_list = [
                             InputDevice(self, 1, 1, "network",
                                       network_peer=self.network_peer)
                         ]
                         if self.use_keyboard:
                             self.input_device_list.append(
-                                InputDevice(self, 2, 2, "keyboard",
+                                InputDevice(self, 2, 2, "relay",
                                           network_peer=self.network_peer)
                             )
                         elif self.pose_worker:
                             self.input_device_list.append(
-                                InputDevice(self, 2, 2, "network_sender",
+                                InputDevice(self, 2, 2, "relay",
                                           pose_worker=self.pose_worker,
                                           network_peer=self.network_peer)
                             )
                         else:
                             self.input_device_list.append(
-                                InputDevice(self, 2, 2, "keyboard",
+                                InputDevice(self, 2, 2, "relay",
                                           network_peer=self.network_peer)
                             )
                 elif self.is_host:
@@ -303,9 +303,10 @@ class GameObject:
                                   network_peer=self.network_peer)
                     ]
                     # Use keyboard if flag is set, otherwise try camera
+                    # IMPORTANT: Client's Player 2 must use network_sender mode to send inputs to server
                     if self.use_keyboard:
                         self.input_device_list.append(
-                            InputDevice(self, 2, 2, "keyboard",
+                            InputDevice(self, 2, 2, "network_sender",
                                       network_peer=self.network_peer)
                         )
                     elif self.pose_worker:
@@ -316,7 +317,7 @@ class GameObject:
                         )
                     else:
                         self.input_device_list.append(
-                            InputDevice(self, 2, 2, "keyboard",
+                            InputDevice(self, 2, 2, "network_sender",
                                       network_peer=self.network_peer)
                         )
             else:
@@ -479,99 +480,71 @@ class GameObject:
                     self.camera_path, self.frame = {}, [0, 0]
 
     def gameplay(self, *args):
-        # For network mode: implement improved lockstep with input prediction
-        # Don't block the game loop - use prediction if input is late
+        # Server-authoritative network mode
         if self.network_mode and self.network_peer and self.network_peer.is_connected():
-            next_frame = self.emu_frame + 1
-            
-            # Improved lockstep with prediction:
-            # 1. Both players send their input for next_frame (done in InputDevice.update())
-            # 2. Check if input is available (non-blocking)
-            # 3. If not available, use prediction (last known input) instead of blocking
-            # 4. Process frame immediately - don't wait
-            
-            # Only do a very short non-blocking check (max 10ms)
-            # This prevents game slowdown while still checking for inputs
-            if not self.network_peer.has_input_for_frame(next_frame):
-                # Very short timeout (10ms max) - don't block game loop
-                is_localhost = self.remote_ip == "127.0.0.1" or self.remote_ip == "localhost"
-                timeout = 0.005 if is_localhost else 0.01  # 5ms for localhost, 10ms for network
-                # This will return quickly if input not available
-                self.network_peer.wait_for_frame_input(next_frame, timeout=timeout)
-            
-            # If input still not available, InputDevice will use prediction (last known input)
-            # This prevents desync and keeps game running smoothly
-            
-            # State management: save state periodically (before frame increment)
-            if self.state_manager:
-                # Save state snapshot before simulating next frame
-                if self.state_manager.should_save_state(self.emu_frame):
-                    self.state_manager.save_state(self, self.emu_frame)
+            if self.network_peer.is_server:
+                # SERVER (Player 1): Authoritative simulation
+                # Server simulates the game and sends state to clients
                 
-                # Capture inputs that will be used for next frame (frame N+1)
-                # Inputs are already processed by InputDevice.update() before gameplay() is called
-                # We need to get the raw_input that was sent to network (for frame N+1)
-                player1_input = None
-                player2_input = None
+                # InputDevice.update() is called before gameplay(), so inputs are already processed
+                # Player 1 input: already processed by InputDevice[0] (relay_mode - sends and uses local input)
+                # Player 2 input: already processed by InputDevice[1] (network_mode - gets input from network buffer)
+                # No need to manually call get_press() - InputDevice[1].update() already did it via network_mode()
                 
-                # For relay mode: player 1 uses local input, player 2 receives network input
-                # We need to reconstruct what inputs were actually used
-                if len(self.input_device_list) > 0:
-                    dev1 = self.input_device_list[0]
-                    # Get the input that was processed (last_input after get_press)
-                    if hasattr(dev1, 'last_input') and dev1.last_input:
-                        # Deep copy to avoid reference issues
-                        import copy
-                        player1_input = copy.deepcopy(dev1.last_input)
+                # Simulate frame (authoritative)
+                # InputDevice[0] already has Player 1's input processed
+                self.emu_frame += 1
+                for object in self.object_list:
+                    object.update(self.camera_focus_point)
+                self.hitstop = self.hitstop - 1 if self.hitstop else 0
                 
-                if len(self.input_device_list) > 1:
-                    dev2 = self.input_device_list[1]
-                    if hasattr(dev2, 'last_input') and dev2.last_input:
-                        import copy
-                        player2_input = copy.deepcopy(dev2.last_input)
+                for object in self.object_list:
+                    update_display_shake(object)
+                calculate_boxes_collitions(self)
+                update_display_shake(self.camera)
+                self.calculate_camera_focus_point()
                 
-                # Use neutral input if not available
-                if player1_input is None:
-                    player1_input = [[0,0],0,0,0,0,0,0,0,0,0,0]
-                if player2_input is None:
-                    player2_input = [[0,0],0,0,0,0,0,0,0,0,0,0]
+                # Send state to clients periodically
+                self.network_peer.send_game_state(self, self.emu_frame)
                 
-                # Save inputs for the frame we're about to simulate (N+1)
-                next_frame = self.emu_frame + 1
-                self.state_manager.save_inputs(next_frame, player1_input, player2_input)
-            
-            # Desync detection: check periodically
-            if self.desync_detector and self.desync_detector.should_check(self.emu_frame):
-                is_desynced, desync_frame = self.desync_detector.check_desync(self, self.network_peer)
-                if is_desynced:
-                    # Desync detected - attempt full rollback recovery
-                    recovery_frame = self.desync_detector.get_recovery_frame()
-                    print(f"[DesyncDetector] ⚠️  DESYNC DETECTED at frame {desync_frame} - Attempting rollback recovery to frame {recovery_frame}")
+            elif self.network_peer.is_client:
+                # CLIENT (Player 2): Receive state from server
+                # Client sends inputs but doesn't simulate authoritatively
+                
+                # IMPORTANT: InputDevice.update() is called before gameplay(), so inputs are already sent
+                # The client's InputDevice[1] in relay_mode sends local input to server
+                
+                # Check for state update from server
+                latest_state = self.network_peer.get_latest_state()
+                if latest_state:
+                    target_frame = latest_state.frame
                     
-                    if self.state_manager:
-                        # Perform full rollback
-                        success = self.state_manager.rollback_to_frame(self, recovery_frame)
-                        if success:
-                            print(f"[DesyncDetector] ✓ Rollback successful - game state restored to frame {recovery_frame}")
-                            self.desync_detector.last_synced_frame = recovery_frame
-                            self.desync_detector.desync_detected = False
-                            # After rollback, we need to re-simulate from recovery_frame to current_frame
-                            # This is handled by rollback_to_frame's _resimulate_frames
-                        else:
-                            print(f"[DesyncDetector] ✗ Rollback failed - no state snapshot available")
-                    else:
-                        print(f"[DesyncDetector] ✗ Rollback failed - state manager not initialized")
-        
-        self.emu_frame += 1
-        for object in self.object_list:
-            object.update(self.camera_focus_point)
-        self.hitstop = self.hitstop - 1 if self.hitstop else 0
+                    if target_frame > self.emu_frame:
+                        # Server is ahead - apply server state
+                        # This will set emu_frame to target_frame and restore all game state
+                        latest_state.apply_to_game(self)
+                        # State application sets emu_frame, so we're synchronized
+                    elif target_frame == self.emu_frame:
+                        # Already at this frame - apply state to ensure sync (in case of drift)
+                        latest_state.apply_to_game(self)
+                    # If target_frame < emu_frame, we're ahead (shouldn't happen, but ignore)
+                else:
+                    # No state available yet - wait for server
+                    # Don't simulate ahead of server to maintain synchronization
+                    # But InputDevice.update() still runs and sends inputs
+                    pass
+        else:
+            # Local mode (no network) or not connected - normal simulation
+            self.emu_frame += 1
+            for object in self.object_list:
+                object.update(self.camera_focus_point)
+            self.hitstop = self.hitstop - 1 if self.hitstop else 0
 
-        for object in self.object_list:
-            update_display_shake(object)
-        calculate_boxes_collitions(self)
-        update_display_shake(self.camera)
-        self.calculate_camera_focus_point()
+            for object in self.object_list:
+                update_display_shake(object)
+            calculate_boxes_collitions(self)
+            update_display_shake(self.camera)
+            self.calculate_camera_focus_point()
 
     def display(self, *args):
         for object in self.object_list:

@@ -30,10 +30,14 @@ class GameStateSnapshot:
             'draw_shake': list(game.draw_shake) if hasattr(game, 'draw_shake') else [0, 0, 0, 0, 0, 0],
         }
         
-        # Serialize all game objects
+        # Serialize all game objects (skip particles - they're visual effects)
         objects = []
         for obj in game.object_list:
             if hasattr(obj, '__class__') and obj.__class__.__name__ == "BaseActiveObject":
+                # Skip particles - they're created/destroyed dynamically and don't need sync
+                obj_type = getattr(obj, 'type', None)
+                if obj_type == 'particle':
+                    continue
                 obj_state = self._serialize_object(obj)
                 if obj_state:
                     objects.append(obj_state)
@@ -75,6 +79,15 @@ class GameStateSnapshot:
                 'kara': getattr(obj, 'kara', 0),
                 'buffer_state': dict(getattr(obj, 'buffer_state', {})),
                 'command_index_timer': self._serialize_command_timer(getattr(obj, 'command_index_timer', {})),
+                # Image/visual attributes - important for sprites
+                'image': getattr(obj, 'image', 'reencor/none'),
+                'image_offset': list(getattr(obj, 'image_offset', [0, 0, 0])),
+                'image_size': list(getattr(obj, 'image_size', [100, 100, 0])),
+                'image_mirror': list(getattr(obj, 'image_mirror', [False, False])),
+                'image_tint': list(getattr(obj, 'image_tint', [255, 255, 255, 255])),
+                'image_angle': list(getattr(obj, 'image_angle', [0, 0, 0])),
+                'image_repeat': getattr(obj, 'image_repeat', False),
+                'image_glow': getattr(obj, 'image_glow', 0),
             }
         except Exception as e:
             print(f"[StateManager] Error serializing object: {e}")
@@ -122,7 +135,10 @@ class GameStateSnapshot:
                 if obj:
                     self._deserialize_object(obj, obj_state)
                 else:
-                    print(f"[StateManager] Warning: Could not find object type={obj_state.get('type')}, team={obj_state.get('team')}")
+                    # Only warn for non-particle objects (particles are skipped intentionally)
+                    obj_type = obj_state.get('type')
+                    if obj_type != 'particle':
+                        print(f"[StateManager] Warning: Could not find object type={obj_type}, team={obj_state.get('team')}")
         
         except Exception as e:
             print(f"[StateManager] Error applying state: {e}")
@@ -196,6 +212,23 @@ class GameStateSnapshot:
                 obj.buffer_state = dict(obj_state['buffer_state'])
             if hasattr(obj, 'command_index_timer'):
                 obj.command_index_timer = dict(obj_state['command_index_timer'])
+            # Image/visual attributes - restore sprites
+            if hasattr(obj, 'image') and 'image' in obj_state:
+                obj.image = obj_state['image']
+            if hasattr(obj, 'image_offset') and 'image_offset' in obj_state:
+                obj.image_offset = list(obj_state['image_offset'])
+            if hasattr(obj, 'image_size') and 'image_size' in obj_state:
+                obj.image_size = list(obj_state['image_size'])
+            if hasattr(obj, 'image_mirror') and 'image_mirror' in obj_state:
+                obj.image_mirror = list(obj_state['image_mirror'])
+            if hasattr(obj, 'image_tint') and 'image_tint' in obj_state:
+                obj.image_tint = list(obj_state['image_tint'])
+            if hasattr(obj, 'image_angle') and 'image_angle' in obj_state:
+                obj.image_angle = list(obj_state['image_angle'])
+            if hasattr(obj, 'image_repeat') and 'image_repeat' in obj_state:
+                obj.image_repeat = obj_state['image_repeat']
+            if hasattr(obj, 'image_glow') and 'image_glow' in obj_state:
+                obj.image_glow = obj_state['image_glow']
         except Exception as e:
             print(f"[StateManager] Error deserializing object: {e}")
 
