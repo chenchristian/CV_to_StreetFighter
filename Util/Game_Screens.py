@@ -173,36 +173,47 @@ class PlayerSelectionScreen:
             self.game.cpu_player1 = cpu_player1
             self.game.cpu_player2 = cpu_player2
             
-            # Check for relay mode first
-            relay_mode = "--relay" in sys.argv
+            # Check for --multi flag (simplified multiplayer)
+            multi_mode = "--multi" in sys.argv
+            
+            # Check for relay mode (either --multi or --relay)
+            relay_mode = multi_mode or "--relay" in sys.argv
             relay_server_ip = None
             relay_server_port = None
             
             if relay_mode:
-                # Relay mode: both players connect to relay server
-                try:
-                    relay_ip_idx = sys.argv.index("--relay-ip")
-                    relay_server_ip = sys.argv[relay_ip_idx + 1]
-                    
-                    # Validate IP address is not empty
-                    if not relay_server_ip or relay_server_ip.strip() == "":
-                        print("[Network] ERROR: --relay-ip cannot be empty")
+                # If --multi is used, use default server
+                if multi_mode:
+                    relay_server_ip = "interchange.proxy.rlwy.net"
+                    relay_server_port = 23646
+                    print(f"[Network] Multiplayer mode: Using default relay server at {relay_server_ip}:{relay_server_port}")
+                else:
+                    # Legacy --relay mode: require --relay-ip
+                    try:
+                        relay_ip_idx = sys.argv.index("--relay-ip")
+                        relay_server_ip = sys.argv[relay_ip_idx + 1]
+                        
+                        # Validate IP address is not empty
+                        if not relay_server_ip or relay_server_ip.strip() == "":
+                            print("[Network] ERROR: --relay-ip cannot be empty")
+                            print("[Network] Usage: python main.py --relay --relay-ip <SERVER_IP> [--relay-port <PORT>]")
+                            print("[Network] Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
+                            relay_mode = False
+                            relay_server_ip = None
+                    except (ValueError, IndexError):
+                        print("[Network] ERROR: --relay-ip required when using --relay mode")
                         print("[Network] Usage: python main.py --relay --relay-ip <SERVER_IP> [--relay-port <PORT>]")
                         print("[Network] Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
                         relay_mode = False
                         relay_server_ip = None
-                except (ValueError, IndexError):
-                    print("[Network] ERROR: --relay-ip required when using --relay mode")
-                    print("[Network] Usage: python main.py --relay --relay-ip <SERVER_IP> [--relay-port <PORT>]")
-                    print("[Network] Example: python main.py --relay --relay-ip 123.45.67.89 --relay-port 5555")
-                    relay_mode = False
-                    relay_server_ip = None
-                
-                try:
-                    relay_port_idx = sys.argv.index("--relay-port")
-                    relay_server_port = int(sys.argv[relay_port_idx + 1])
-                except (ValueError, IndexError):
-                    relay_server_port = 5555  # Default port
+                    
+                    # Get port if specified (only for legacy --relay mode)
+                    if relay_mode and relay_server_ip:
+                        try:
+                            relay_port_idx = sys.argv.index("--relay-port")
+                            relay_server_port = int(sys.argv[relay_port_idx + 1])
+                        except (ValueError, IndexError):
+                            relay_server_port = 5555  # Default port
                 
                 self.game.is_host = False  # Not used in relay mode
                 self.game.relay_mode = True  # Set relay mode flag

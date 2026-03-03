@@ -197,7 +197,40 @@ class InputDevice:
         self.get_press(raw_input)
 
     def external_mode_2(self):
-        keyboard = self.pose_worker.get_latest_model_output()
+        # Fallback to keyboard if pose_worker is None or not started
+        if self.pose_worker is None:
+            self.keyboard_mode()
+            return
+        
+        # Check if pose worker thread is running
+        thread_running = (hasattr(self.pose_worker, '_thread') and 
+                         self.pose_worker._thread and 
+                         self.pose_worker._thread.is_alive())
+        
+        if not thread_running:
+            # Thread not running - fallback to keyboard
+            self.keyboard_mode()
+            return
+        
+        try:
+            keyboard = self.pose_worker.get_latest_model_output()
+            # Check if we got a valid keyboard tuple (should be 512 elements)
+            # Even if all zeros, that's valid (just means no movement detected)
+            if keyboard is None or not isinstance(keyboard, (tuple, list)):
+                # Invalid format - fallback to keyboard
+                self.keyboard_mode()
+                return
+            
+            # Pad or truncate to 512 elements if needed
+            if len(keyboard) < 512:
+                keyboard = tuple(list(keyboard) + [0] * (512 - len(keyboard)))
+            elif len(keyboard) > 512:
+                keyboard = tuple(keyboard[:512])
+        except (AttributeError, TypeError, Exception) as e:
+            # Pose worker not ready or doesn't have model output yet - fallback to keyboard
+            self.keyboard_mode()
+            return
+        
         self.raw_input = [
             sum(keyboard[key] for key in self.key[0]),
             sum(keyboard[key] for key in self.key[1]),
@@ -254,7 +287,6 @@ class InputDevice:
             sum(keyboard[key] for key in self.key[9]),
             sum(keyboard[key] for key in self.key[10]),
         ]
-<<<<<<< HEAD
         
         combo_trail_inputs = []
         for title, keys in self.combo_trail_key_mapping.items():
@@ -370,25 +402,6 @@ class InputDevice:
                 self.raw_input[10],
             ]
         )
-
-<<<<<<< HEAD
-    def get_press(self, raw_input, extra_inputs=None, extra_commands=None):
-        if extra_inputs is None:
-            extra_inputs = []
-        if extra_commands is None:
-            extra_commands = []
-        macro_press = bool(extra_inputs) or bool(extra_commands)
-
-        self.inter_press = 0
-        self.current_input.clear()
-
-        # 2 = down
-        # 4 = back
-        # 6 = forward
-        # 1 = down‑back
-        # 3 = down‑forward
-        # 5 = neutral
-        # 8 = up
 
     def network_mode(self):
         """Receive inputs from network peer - uses frame-based synchronization"""
@@ -536,10 +549,59 @@ class InputDevice:
         Always uses local input for this player's character, and sends it to network.
         Also receives network input (which is used by the other player's InputDevice)."""
         # Get local input from pose worker or keyboard
+        raw_input = None
+        
         if self.pose_worker:
-            raw_input = self.pose_worker.get_latest_game_input()
-        else:
-            # Fallback to keyboard if no pose worker
+            # Check if pose worker thread is running
+            thread_running = (hasattr(self.pose_worker, '_thread') and 
+                             self.pose_worker._thread and 
+                             self.pose_worker._thread.is_alive())
+            
+            if thread_running:
+                try:
+                    # Use model output (same as external_mode_2) for camera input
+                    keyboard = self.pose_worker.get_latest_model_output()
+                    # Check if we got a valid keyboard tuple (should be 512 elements)
+                    if keyboard is not None and isinstance(keyboard, (tuple, list)):
+                        # Pad or truncate to 512 elements if needed
+                        if len(keyboard) < 512:
+                            keyboard = tuple(list(keyboard) + [0] * (512 - len(keyboard)))
+                        elif len(keyboard) > 512:
+                            keyboard = tuple(keyboard[:512])
+                        
+                        # Process keyboard tuple into raw_input format (same as external_mode_2)
+                        self.raw_input = [
+                            sum(keyboard[key] for key in self.key[0]),
+                            sum(keyboard[key] for key in self.key[1]),
+                            sum(keyboard[key] for key in self.key[2]),
+                            sum(keyboard[key] for key in self.key[3]),
+                            sum(keyboard[key] for key in self.key[4]),
+                            sum(keyboard[key] for key in self.key[5]),
+                            sum(keyboard[key] for key in self.key[6]),
+                            sum(keyboard[key] for key in self.key[7]),
+                            sum(keyboard[key] for key in self.key[8]),
+                            sum(keyboard[key] for key in self.key[9]),
+                            sum(keyboard[key] for key in self.key[10]),
+                        ]
+                        raw_input = [
+                            [
+                                self.raw_input[0] + self.raw_input[1] * -1,
+                                self.raw_input[2] + self.raw_input[3] * -1,
+                            ],
+                            self.raw_input[4],
+                            self.raw_input[5],
+                            self.raw_input[6],
+                            self.raw_input[7],
+                            self.raw_input[8],
+                            self.raw_input[9],
+                            self.raw_input[10],
+                        ]
+                except (AttributeError, TypeError, Exception) as e:
+                    # Error getting model output - fallback to keyboard
+                    raw_input = None
+        
+        # Fallback to keyboard if no pose worker or if input format is wrong
+        if raw_input is None:
             keyboard = tuple(key.get_pressed())
             self.raw_input = [
                 sum(keyboard[key] for key in self.key[0]),
@@ -583,7 +645,13 @@ class InputDevice:
         # Note: The received network input (from other player) is handled by the other player's InputDevice
         # which is in "relay" mode and uses its own local input
 
-    def get_press(self, raw_input):
+    def get_press(self, raw_input, extra_inputs=None, extra_commands=None):
+        if extra_inputs is None:
+            extra_inputs = []
+        if extra_commands is None:
+            extra_commands = []
+        macro_press = bool(extra_inputs) or bool(extra_commands)
+        
         self.inter_press = 0
         self.current_input.clear()
 
@@ -602,7 +670,6 @@ class InputDevice:
                 # Ensure first element is a list
                 if len(self.last_input) > 0 and not isinstance(self.last_input[0], list):
                     self.last_input = [[0, 0]] + self.last_input[1:]
->>>>>>> network-multiplayer
 
         # ↙↓↘←•→↖↑↗
         dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][raw_input[0][0] * (1 if self.active_object == None else self.active_object.face)][
@@ -688,8 +755,22 @@ class InputDevice:
             + commands
         )
 
-        if macro_press:
+        # Set inter_press if input changed (for menu navigation and gameplay)
+        # Check if dpad changed or buttons were pressed/released
+        # Compare current dpad with last dpad to detect changes
+        last_dpad = "5"  # Default to neutral
+        if len(self.last_input) > 0 and isinstance(self.last_input[0], list):
+            try:
+                last_dpad = [["8", "2", "5"], ["9", "3", "6"], ["7", "1", "4"]][self.last_input[0][0] * (1 if self.active_object == None else self.active_object.face)][self.last_input[0][1] - 1]
+            except (IndexError, TypeError):
+                last_dpad = "5"
+        
+        if (dpad != last_dpad or pressed_buttons or released_buttons or macro_press):
             self.inter_press = 1
+        else:
+            self.inter_press = 0
+        
+        if macro_press:
             if len(self.press_list_showed) > 20:
                 self.press_list_showed.pop(0)
             self.press_list_showed.append(list(self.current_input))

@@ -44,7 +44,12 @@ class PoseViewer:
 
     def _ensure_window(self):
         if not self._window_created:
+            # Get camera dimensions from pose worker
+            cam_width = self.shared_state.width if hasattr(self.shared_state, 'width') else 640
+            cam_height = self.shared_state.height if hasattr(self.shared_state, 'height') else 480
+            # Create window with fixed size matching camera resolution
             cv.namedWindow("Pose Debug Window", cv.WINDOW_NORMAL)
+            cv.resizeWindow("Pose Debug Window", cam_width, cam_height)
             self._window_created = True
 
     def poll(self):
@@ -54,7 +59,10 @@ class PoseViewer:
         
         # --- THE FIX: Keep OpenCV alive while waiting for data ---
         if not snapshot:
-            img = np.zeros((480, 640, 3), dtype=np.uint8)
+            # Use camera dimensions from pose worker
+            cam_width = self.shared_state.width if hasattr(self.shared_state, 'width') else 640
+            cam_height = self.shared_state.height if hasattr(self.shared_state, 'height') else 480
+            img = np.zeros((cam_height, cam_width, 3), dtype=np.uint8)
             self._draw_text(img, "WAITING FOR CAMERA OR MODEL...", (120, 240), font_scale=0.7, thickness=2)
             cv.imshow("Pose Debug Window", img)
             cv.waitKey(1)
@@ -70,6 +78,10 @@ class PoseViewer:
 
         img = cv.cvtColor(self.last_frame, cv.COLOR_RGB2BGR)
         h, w = img.shape[:2]
+        
+        # Ensure window size matches image size to avoid grey space
+        if self._window_created:
+            cv.resizeWindow("Pose Debug Window", w, h)
 
         # Draw Skeleton (Standard Mediapipe connections)
         skeleton_connections = [
