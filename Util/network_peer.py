@@ -781,7 +781,29 @@ class NetworkPeer:
                     # Debug: print first few sends
                     # if message.get("type") == "input" and self.frame_number < 5:
                     #     print(f"[Network] Sent input frame {message.get('frame')}: {message.get('input')[:2]}")
-                except (BrokenPipeError, ConnectionResetError, OSError) as e:
+                except BlockingIOError as e:
+                    # EAGAIN/EWOULDBLOCK - send buffer full, temporarily unavailable
+                    # Re-queue message and retry later (connection is still fine)
+                    try:
+                        self.send_queue.put_nowait(message)
+                    except queue.Full:
+                        pass  # Drop if queue is full
+                    continue
+                except OSError as e:
+                    # Check if it's EAGAIN/EWOULDBLOCK (errno 35 on macOS, 11 on Linux)
+                    if e.errno == 35 or e.errno == 11:  # EAGAIN or EWOULDBLOCK
+                        # Temporary - re-queue and retry
+                        try:
+                            self.send_queue.put_nowait(message)
+                        except queue.Full:
+                            pass
+                        continue
+                    else:
+                        # Other OSError - likely connection loss
+                        print(f"[Network] Send error (connection lost): {e}")
+                        self.disconnect()
+                        break
+                except (BrokenPipeError, ConnectionResetError) as e:
                     print(f"[Network] Send error (connection lost): {e}")
                     self.disconnect()
                     break
