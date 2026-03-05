@@ -555,6 +555,7 @@ class InputDevice:
         Also receives network input (which is used by the other player's InputDevice)."""
         # Get local input from pose worker or keyboard
         raw_input = None
+        combo_trail_inputs = []  # Initialize combo trail inputs (for special moves like Hadouken)
         
         if self.pose_worker:
             # Check if pose worker thread is running
@@ -601,9 +602,20 @@ class InputDevice:
                             self.raw_input[9],
                             self.raw_input[10],
                         ]
+                        
+                        # Process combo_trail_inputs (special moves like Hadouken) from keyboard tuple
+                        combo_trail_inputs = []
+                        for title, keys in self.combo_trail_key_mapping.items():
+                            is_down = sum(keyboard[key] for key in keys) > 0
+                            was_down = self.last_combo_trail_state.get(title, 0)
+                            if is_down and not was_down:
+                                steps = self.combo_trail_macros.get(title, [])
+                                combo_trail_inputs = [item for step in steps for item in step]
+                            self.last_combo_trail_state[title] = 1 if is_down else 0
                 except (AttributeError, TypeError, Exception) as e:
                     # Error getting model output - fallback to keyboard
                     raw_input = None
+                    combo_trail_inputs = []
         
         # Fallback to keyboard if no pose worker or if input format is wrong
         if raw_input is None:
@@ -634,6 +646,16 @@ class InputDevice:
                 self.raw_input[9],
                 self.raw_input[10],
             ]
+            
+            # Process combo_trail_inputs (special moves like Hadouken) from keyboard
+            combo_trail_inputs = []
+            for title, keys in self.combo_trail_key_mapping.items():
+                is_down = sum(keyboard[key] for key in keys) > 0
+                was_down = self.last_combo_trail_state.get(title, 0)
+                if is_down and not was_down:
+                    steps = self.combo_trail_macros.get(title, [])
+                    combo_trail_inputs = [item for step in steps for item in step]
+                self.last_combo_trail_state[title] = 1 if is_down else 0
         
         # Always send local input to network (relay server will route it to other player)
         # Send input for NEXT frame (lockstep synchronization)
@@ -645,7 +667,8 @@ class InputDevice:
                 print(f"[InputDevice] Player {self.team} sending input for frame {next_frame}: {raw_input[:2] if isinstance(raw_input, list) and len(raw_input) > 0 else raw_input}")
         
         # Always use local input for this player's character
-        self.get_press(raw_input)
+        # Pass combo_trail_inputs to register special moves like Hadouken
+        self.get_press(raw_input, extra_inputs=combo_trail_inputs)
         
         # Note: The received network input (from other player) is handled by the other player's InputDevice
         # which is in "relay" mode and uses its own local input
