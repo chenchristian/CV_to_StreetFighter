@@ -214,6 +214,10 @@ class PoseWorker:
                     res = self.live_predictor.predict(vector)
                     if res[0] is not None:
                         pred_label, probabilities = res 
+
+                        #if the confidence is less than 90. keep idle
+                        if probabilities.max() < 0.90:
+                            pred_label = "idle"
                     else:
                         pred_label, probabilities = "WARMING UP", None
 
