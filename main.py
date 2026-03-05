@@ -608,8 +608,6 @@ from ComputerVision.pose_worker import PoseWorker
 from ComputerVision.pose_viewer import PoseViewer
 
 #change this to change which model we are using
-from Models.LSTM_v1.lstm_live_predictions import LivePosePredictor
-from Models.LSTM_v1.lstm_model import LSTMWindowClassifier
 from Models.FC.fc_model_live import FCLivePosePredictor
 from Models.FC.fc_model import DynamicFCBaseline 
 
