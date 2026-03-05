@@ -32,7 +32,7 @@ from Util.Interface_objects import Message
 
 #global variable to activate\ deactivate the computer vision mode
 COMPUTER_VISION = True
-MODEL_PATH = "Models/LSTM_v1/phase1LSTM_original.pth"
+MODEL_PATH = "Models/FC/street_fighter_fc_weights.pth"
 lABEL_ENCODER = "Models/LSTM_v1/label_encoder.pkl"
 
 
@@ -364,26 +364,38 @@ from ComputerVision.pose_viewer import PoseViewer
 #change this to change which model we are using
 from Models.LSTM_v1.lstm_live_predictions import LivePosePredictor
 from Models.LSTM_v1.lstm_model import LSTMWindowClassifier
+from Models.FC.fc_model_live import FCLivePosePredictor
+from Models.FC.fc_model import DynamicFCBaseline 
 
 # Load model
 with open(lABEL_ENCODER, "rb") as f:
     label_encoder = pickle.load(f)
 
-model = LSTMWindowClassifier(
-    input_size=84,  # 21 landmarks * 4 features
-    hidden_size=128,
-    num_layers=2,
-    num_classes=len(label_encoder.classes_),
-    dropout=0.3
+# model = LSTMWindowClassifier(
+#     input_size=84,  # 21 landmarks * 4 features
+#     hidden_size=128,
+#     num_layers=2,
+#     num_classes=len(label_encoder.classes_),
+#     dropout=0
+# )
+model = DynamicFCBaseline(
+    input_size=84, 
+    hidden_size=128, 
+    num_layers=2, 
+    num_classes=len(label_encoder.classes_), 
+    dropout=0.3 # Keep this the same as what you used in training!
 )
+
 if(COMPUTER_VISION):
 # Load the trained weights
     model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))  # or "cuda"
-    model.eval()
+    model.eval() #turns off dropout
 
     # Create predictor
     # change this to change which model we are using
-    predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
+    
+    #predictor = LivePosePredictor(model, label_encoder, sequence_length=5)
+    predictor = FCLivePosePredictor(model=model, label_encoder=label_encoder)
 
     # Start PoseWorker
     pose_worker = PoseWorker(camera_index=0, live_predictor=predictor)
