@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
+from matplotlib.colors import LinearSegmentedColormap
 from sklearn.preprocessing import LabelEncoder
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -72,9 +73,12 @@ class PoseWindowDataset(Dataset):
 # -------------------------
 # LSTM Model
 # -------------------------
+import torch.nn as nn
+
 class LSTMWindowClassifier(nn.Module):
-    def __init__(self, input_size=84, hidden_size=128, num_layers=2, num_classes=3, dropout=0.3):
+    def __init__(self, input_size=84, hidden_size=128, num_layers=1, num_classes=14, dropout=0.3):
         super().__init__()
+        
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -82,18 +86,22 @@ class LSTMWindowClassifier(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0
         )
-        self.fc1 = nn.Linear(hidden_size, 64)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
-        self.fc2 = nn.Linear(64, num_classes)
+        
+        # Group the fully connected layers here. 
+        # You can now easily swap, add, or remove layers.
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_size, 64),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(64, num_classes)
+        )
 
     def forward(self, x):
-        lstm_out, (h_n, c_n) = self.lstm(x)
+        _, (h_n, _) = self.lstm(x)
         last_hidden = h_n[-1]  # last layer's hidden state
-        out = self.fc1(last_hidden)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.fc2(out)
+        
+        # Pass the hidden state through the sequential block
+        out = self.classifier(last_hidden)
         return out
     
 def predict(model, test_folder, label_encoder, window_size=5, batch_size=16):
@@ -125,42 +133,99 @@ def predict(model, test_folder, label_encoder, window_size=5, batch_size=16):
 # -------------------------
 # Training
 # -------------------------
-def train_model(train_folder, window_size=5, stride=1, batch_size=16, epochs=10, lr=1e-3, model_path="Models/LSTM_v1/lstm_pose_model.pth", encoder_path="label_encoder.pkl"):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+def patient_train(
+    model,
+    train_loader,
+    val_loader,
+    criterion,
+    optimizer,
+    label_encoder,
+    encoder_path,
+    model_path,
+    max_epochs=50,
+    patience=5
+):
+    
+    train_hist = []
+    val_hist = []
+    
+    best_val_loss = float('inf')
+    epochs_no_improve = 0
+    
+    for epoch in range(max_epochs):
 
-    # Initialize dataset and label encoder
-    dataset = PoseWindowDataset(train_folder, window_size=window_size, stride=stride)
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-    num_classes = len(dataset.label_encoder.classes_)
-    model = LSTMWindowClassifier(input_size=84, num_classes=num_classes).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-
-    print(f"Training on {len(dataset)} windows...")
-
-    for epoch in range(epochs):
+        # ================================
+        # 1. TRAINING LOOP
+        # ================================
         model.train()
-        total_loss = 0
-        for seq, label in train_loader:
-            seq, label = seq.to(device), label.to(device)
+        running_train_loss = 0.0
+        
+        for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            
             optimizer.zero_grad()
-            output = model(seq)
-            loss = criterion(output, label)
+            outputs = model(X_batch)
+            loss = criterion(outputs, y_batch)
+            
             loss.backward()
             optimizer.step()
-            total_loss += loss.item() * seq.size(0)
-        avg_loss = total_loss / len(dataset)
-        print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f}")
+            
+            running_train_loss += loss.item() * X_batch.size(0)
+            
+        epoch_train_loss = running_train_loss / len(train_loader.dataset)
 
-    torch.save(model.state_dict(), model_path)
+        # ================================
+        # 2. VALIDATION LOOP
+        # ================================
+        model.eval()
+        running_val_loss = 0.0
+        
+        with torch.no_grad():
+            for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                
+                outputs = model(X_batch)
+                loss = criterion(outputs, y_batch)
+                
+                running_val_loss += loss.item() * X_batch.size(0)
+                
+        epoch_val_loss = running_val_loss / len(val_loader.dataset)
+
+        train_hist.append(epoch_train_loss)
+        val_hist.append(epoch_val_loss)
+        
+        print(f"Epoch {epoch+1}/{max_epochs} | Train Loss: {epoch_train_loss:.4f} | Val Loss: {epoch_val_loss:.4f}")
+
+        # ================================
+        # 3. EARLY STOPPING
+        # ================================
+        if epoch_val_loss < best_val_loss:
+            
+            best_val_loss = epoch_val_loss
+            epochs_no_improve = 0
+            
+            torch.save(model.state_dict(), model_path)
+            print(f"✓ New best model saved to {model_path}")
+            
+        else:
+            epochs_no_improve += 1
+            print(f"Val loss did not improve ({epochs_no_improve}/{patience})")
+
+        if epochs_no_improve >= patience:
+            print(f"\n🛑 Early stopping triggered at epoch {epoch+1}")
+            break
+
+    # ================================
+    # 4. SAVE LABEL ENCODER
+    # ================================
     with open(encoder_path, "wb") as f:
-        pickle.dump(dataset.label_encoder, f)
+        pickle.dump(label_encoder, f)
 
-    print(f"\nTraining complete! Model saved to {model_path}")
-    print(f"Label encoder saved to {encoder_path}")
-    return model, dataset.label_encoder
+    print(f"\nTraining complete!")
+    print(f"Best model saved to: {model_path}")
+    print(f"Label encoder saved to: {encoder_path}")
+    
+    return model, train_hist, val_hist
 
 # -------------------------
 # Prediction
@@ -223,54 +288,91 @@ def play_video_with_prediction(model, label_encoder, csv_path, video_path, windo
 # Example usage
 # -------------------------
 if __name__ == "__main__":
+
+    # ==========================
     # 1. Paths
-    train_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Train_clips"
-    test_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Test_clips"
-    model_output = "Models/LSTM_v1/phase1LSTM_original.pth"
+    # ==========================
+    train_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Train_clips_augmented"
+    test_folder = "Data/Train_Test_Data/Not_Seperated/Clips_Split_80_20/Test_clips_augmented"
+
+    model_output = "Models/LSTM_v1/phase2LSTM.pth"
     encoder_path = "Models/LSTM_v1/label_encoder.pkl"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    mode = "test"
+    mode = "test"   # "train" or "test"
 
+    # ==========================
+    # 2. Data Preparation
+    # ==========================
+    window_size = 3
+    batch_size = 128
+
+    print("Loading training data...")
+    train_dataset = PoseWindowDataset(train_folder, window_size=window_size)
+
+    print("Loading validation data...")
+    val_dataset = PoseWindowDataset(
+        test_folder,
+        window_size=window_size,
+        label_encoder=train_dataset.label_encoder
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+    num_classes = len(train_dataset.label_encoder.classes_)
+    print(f"\n✅ Ready! Classes ({num_classes}): {train_dataset.label_encoder.classes_}")
+
+    # ==========================
+    # 3. MODEL
+    # ==========================
+    model = LSTMWindowClassifier(
+        input_size=84,
+        hidden_size=64,
+        num_layers=1,
+        num_classes=num_classes,
+        dropout=0.3
+    ).to(device)
+
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
+    # ==========================
+    # 4. TRAIN OR LOAD MODEL
+    # ==========================
     if mode == "train":
-        model, label_encoder = train_model(
-            train_folder,
-            epochs=10,
-            model_path=model_output,
-            encoder_path=encoder_path
+
+        model, train_hist, val_hist = patient_train(
+            model,
+            train_loader,
+            val_loader,
+            criterion,
+            optimizer,
+            train_dataset.label_encoder,
+            encoder_path = encoder_path,
+            model_path= model_output,
+            max_epochs=70,
+            patience=5
         )
 
+        label_encoder = train_dataset.label_encoder
+
     else:
-        # -------------------------
-        # Load label encoder
-        # -------------------------
+
+        print("Loading label encoder...")
         with open(encoder_path, "rb") as f:
             label_encoder = pickle.load(f)
 
-        num_classes = len(label_encoder.classes_)
-
-        # -------------------------
-        # Recreate model architecture
-        # -------------------------
-        model = LSTMWindowClassifier(
-            input_size=84,
-            hidden_size=128,
-            num_layers=2,
-            num_classes=num_classes,
-            dropout=0.3
-        ).to(device)
-
-        # -------------------------
-        # Load trained weights
-        # -------------------------
+        print("Loading trained model weights...")
         model.load_state_dict(torch.load(model_output, map_location=device))
         model.eval()
 
-    # 3. Evaluate
+    # ==========================
+    # 5. Evaluate Model
+    # ==========================
     trues, preds = predict(model, test_folder, label_encoder)
 
-    # 4. Metrics
     print("\n--- TEST SET PERFORMANCE ---")
 
     cm = confusion_matrix(trues, preds)
@@ -286,26 +388,39 @@ if __name__ == "__main__":
     report_df = pd.DataFrame(report_dict).transpose()
     print(report_df)
 
-        # Remove accuracy row (since it's scalar)
-    metrics_df = report_df.drop(columns=["support"])  # remove "accuracy" and "support"
+    # ==========================
+    # 6. Plot Classification Report
+    # ==========================
+    cdict = {
+    "red":   ((0.0, 0.5, 0.5),   # dark red at 0
+              (0.5, 1.0, 1.0),   # lighter in the middle
+              (1.0, 0.0, 0.0)),  # dark green at 1
+    "green": ((0.0, 0.0, 0.0),
+              (0.5, 1.0, 1.0),
+              (1.0, 0.5, 0.5)),
+    "blue":  ((0.0, 0.0, 0.0),
+              (0.5, 1.0, 1.0),
+              (1.0, 0.0, 0.0))
+}
 
-    plt.figure(figsize=(8, 6))
+    custom_cmap = LinearSegmentedColormap("RedLightGreen", segmentdata=cdict)
 
+    metrics_df = report_df.drop(columns=["support"])
+
+    plt.figure(figsize=(8,6))
     ax = sns.heatmap(
         metrics_df,
         annot=True,
         fmt=".3f",
-        cmap="Greens"
+        cmap=custom_cmap,
+        vmin=0, vmax=1  # force scale 0-1
     )
 
-    # Find where summary rows start
-    summary_rows = ["accuracy", "macro avg", "weighted avg"]
+    # Draw a line under 'accuracy'
     divider_index = metrics_df.index.get_loc("accuracy")
-
-    # Draw divider line
     ax.hlines(divider_index, *ax.get_xlim(), colors="black", linewidth=2)
 
-    plt.title("Classification Report")
+    plt.title("Classification Report LSTM")
     plt.tight_layout()
-    plt.savefig("classification_report.png", dpi=300)
+    plt.savefig("classification_report_lstm.png", dpi=300)
     plt.show()
