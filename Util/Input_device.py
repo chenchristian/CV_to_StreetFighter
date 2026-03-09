@@ -198,39 +198,39 @@ class InputDevice:
 
     def external_mode_2(self):
         # Fallback to keyboard if pose_worker is None or not started
-        if self.pose_worker is None:
-            self.keyboard_mode()
-            return
+        # if self.pose_worker is None:
+        #     self.keyboard_mode()
+        #     return
         
-        # Check if pose worker thread is running
-        thread_running = (hasattr(self.pose_worker, '_thread') and 
-                         self.pose_worker._thread and 
-                         self.pose_worker._thread.is_alive())
+        # # Check if pose worker thread is running
+        # thread_running = (hasattr(self.pose_worker, '_thread') and 
+        #                  self.pose_worker._thread and 
+        #                  self.pose_worker._thread.is_alive())
         
-        if not thread_running:
-            # Thread not running - fallback to keyboard
-            self.keyboard_mode()
-            return
+        # if not thread_running:
+        #     # Thread not running - fallback to keyboard
+        #     self.keyboard_mode()
+        #     return
         
-        try:
-            keyboard = self.pose_worker.get_latest_model_output()
-            # Check if we got a valid keyboard tuple (should be 512 elements)
-            # Even if all zeros, that's valid (just means no movement detected)
-            if keyboard is None or not isinstance(keyboard, (tuple, list)):
-                # Invalid format - fallback to keyboard
-                self.keyboard_mode()
-                return
+        # try:
+        #     keyboard = self.pose_worker.get_latest_model_output()
+        #     # Check if we got a valid keyboard tuple (should be 512 elements)
+        #     # Even if all zeros, that's valid (just means no movement detected)
+        #     if keyboard is None or not isinstance(keyboard, (tuple, list)):
+        #         # Invalid format - fallback to keyboard
+        #         self.keyboard_mode()
+        #         return
             
-            # Pad or truncate to 512 elements if needed
-            if len(keyboard) < 512:
-                keyboard = tuple(list(keyboard) + [0] * (512 - len(keyboard)))
-            elif len(keyboard) > 512:
-                keyboard = tuple(keyboard[:512])
-        except (AttributeError, TypeError, Exception) as e:
-            # Pose worker not ready or doesn't have model output yet - fallback to keyboard
-            self.keyboard_mode()
-            return
-        
+        #     # Pad or truncate to 512 elements if needed
+        #     if len(keyboard) < 512:
+        #         keyboard = tuple(list(keyboard) + [0] * (512 - len(keyboard)))
+        #     elif len(keyboard) > 512:
+        #         keyboard = tuple(keyboard[:512])
+        # except (AttributeError, TypeError, Exception) as e:
+        #     # Pose worker not ready or doesn't have model output yet - fallback to keyboard
+        #     self.keyboard_mode()
+        #     return
+        keyboard = self.pose_worker.get_latest_model_output()
         self.raw_input = [
             sum(keyboard[key] for key in self.key[0]),
             sum(keyboard[key] for key in self.key[1]),
