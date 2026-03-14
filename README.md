@@ -1,6 +1,6 @@
 # CV to StreetFighter
 
-<video src="Street Fighter Phase 2 Demo.mov" controls width="800"></video>
+[![Demo Video](jab.png)](Street%20Fighter%20Phase%202%20Demo.mov)
 
 The goal of this project is to use pose estimation models (e.g., ViT-Pose, MediaPipe, or OpenPose) to detect human movements and map them to Street Fighter character actions.
  
