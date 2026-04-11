@@ -207,7 +207,7 @@ def palette_swap(image, palette):
 
 
 class Camera:
-    def __init__(self, smoothness: float = 0.2):
+    def __init__(self, smoothness: float = 0.0):
         self.smoothness = smoothness
         self.draw_shake = [0, 0, 0, 0, 0, 0]
         self.pos = [0, 0, -400]

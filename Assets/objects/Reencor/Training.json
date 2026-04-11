@@ -15,7 +15,7 @@
     "palette":[[]],
     "gauges":[],
     "boxes":{"boundingbox":{"boxes":[[-4000,-400,8000,400]]}},
-    "camera_focus_point_limit":[[-1300,1300],[1000,-80]],
+    "camera_focus_point_limit":[[-650,650],[1000,-80]],
     "trials":[],
     "states": {
         "Stand": {"framedata": [{"dur": 20000, "image":"reencor/grid","image_offset":[1305,-250,0],"image_size":[2610,500],"image_angle":[-90,0,0],"image_repeat":true,"draw_textures": [{"dur": 20000,"image":"reencor/grid","image_offset":[1305,0,-250],"image_size":[2610,2000],"image_angle":[0,0,0],"image_repeat":true},{"dur": 20000,"image":"reencor/grid","image_offset":[1555,0,0],"image_size":[500,2000],"image_angle":[0,90,0],"image_repeat":true},{"dur": 20000,"image":"reencor/grid","image_offset":[-1055,0,0],"image_size":[500,2000],"image_angle":[0,90,0],"image_repeat":true}]}]}
