@@ -1,10 +1,5 @@
 # Install:  uv venv --python 3.12 && uv pip install -r requirements.txt
 # Run:      uv run main.py
-#
-# macOS note: xgboost also needs the OpenMP runtime, which pip cannot supply:
-#   brew install libomp
-# Only ComputerVision/trainModel.py imports xgboost, so main.py and the
-# LSTM/FC models run fine without it.
 
 pygame==2.6.1
 PyOpenGL==3.1.10
@@ -28,7 +23,6 @@ scikit-learn==1.7.1
 
 pandas==3.0.0
 matplotlib==3.10.8
-xgboost==3.2.0
 torch>=2.0.0
 seaborn>=0.12.0
 joblib>=1.3.0
