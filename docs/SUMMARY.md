@@ -319,7 +319,6 @@ MediaPipe Pose Detection
 | `pose_viewer.py` | Debug skeleton overlay |
 | `data_labeling.py` | Training data collection tool |
 | `detect_track_pose.py` | Record poses to CSV |
-| `trainModel.py` | Model training script |
 
 ### Models
 | File | Purpose |
