@@ -1,11 +1,33 @@
+# Install:  uv venv --python 3.12 && uv pip install -r requirements.txt
+# Run:      uv run main.py
+#
+# macOS note: xgboost also needs the OpenMP runtime, which pip cannot supply:
+#   brew install libomp
+# Only ComputerVision/trainModel.py imports xgboost, so main.py and the
+# LSTM/FC models run fine without it.
+
 pygame==2.6.1
 PyOpenGL==3.1.10
-opencv-python==4.13.0.92
+
+# Pinned: mediapipe 0.10.30+ REMOVED the legacy mp.solutions API, which
+# ComputerVision/ depends on (mp.solutions.pose). 0.10.21 is the newest
+# release that still has it. Do not bump without migrating to the Tasks API.
+mediapipe==0.10.21
+
+# mediapipe requires opencv-contrib-python. Do NOT also install opencv-python:
+# both ship the same cv2/ package and silently overwrite each other. contrib
+# is a superset, so it covers everything the plain package provides.
+opencv-contrib-python==4.11.0.86
+
+# mediapipe 0.10.21 requires numpy<2.
+numpy==1.26.4
+
+# Pinned to match the version Models/LSTM_v1/label_encoder.pkl was pickled
+# with. Newer sklearn loads it with an InconsistentVersionWarning.
+scikit-learn==1.7.1
+
 pandas==3.0.0
-scikit-learn==1.8.0
 matplotlib==3.10.8
-mediapipe==0.10.32
-numpy==2.4.2
 xgboost==3.2.0
 torch>=2.0.0
 seaborn>=0.12.0
