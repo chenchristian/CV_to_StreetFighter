@@ -83,3 +83,23 @@ Assets/images/SVC/
 
 Assets/sounds/SF3/
 Assets/sounds/SVC/
+
+# Videos — recordings and pose-visualization output.
+# NOTE: Visualized_Data/*.mp4 and output_pose_video.mp4 are already tracked
+# from earlier commits; this rule only stops NEW videos being added.
+*.mp4
+
+# Model weights (.pth) and label encoders (.pkl) ARE tracked — they're small
+# (KB to ~1MB) and the repo has versioned them since early on. Don't add a
+# blanket ignore for them; datasets and videos are the size problem, not these.
+
+# Images are tracked: game sprites in Assets/images/, the README thumbnail,
+# and model classification reports. No blanket *.png ignore here on purpose.
+
+# Claude Code project config (local only)
+.claude/
+
+# Pose datasets — raw, labeled, split and augmented. Kept out of git; shared
+# out-of-band instead. NOTE: ~1735 .csv files are already tracked from earlier
+# commits, so this rule only stops NEW data being added.
+*.csv
